@@ -1,0 +1,255 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+import { hasPermission } from "@/lib/auth/session";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/types/database";
+
+const VALID_PAYMENT_METHODS = ["bank_transfer", "cash", "credit_card", "other"] as const;
+const VALID_RECEIPT_STATUSES = ["pending", "received", "reconciled"] as const;
+const VALID_SUPPLIER_PAYMENT_STATUSES = ["pending", "paid", "reconciled"] as const;
+const VALID_COST_CATEGORIES = ["vehicle", "driver", "guide", "hotel", "meal", "ticket", "misc"] as const;
+
+export async function createPaymentReceipt(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+  const orderId = String(formData.get("orderId") ?? "").trim();
+
+  if (!canWriteFinance) {
+    redirect("/finance?error=not_allowed");
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect("/finance?error=preview_mode");
+  }
+
+  const payload = readPaymentReceiptPayload(formData);
+  if ("error" in payload) {
+    redirect(`/finance?error=${payload.error}`);
+  }
+
+  const supabase = await createClient();
+  const { data: order, error: orderError } = await supabase.from("orders").select("customer_id").eq("id", orderId).maybeSingle();
+
+  if (orderError || !order) {
+    redirect(`/finance?error=order_not_found&detail=${encodeURIComponent(orderError?.message ?? "找不到关联订单。")}`);
+  }
+
+  const { error } = await supabase.from("payment_receipts").insert({
+    ...(payload as Database["public"]["Tables"]["payment_receipts"]["Insert"]),
+    customer_id: (order as { customer_id: string }).customer_id,
+  } as never);
+
+  if (error) {
+    console.error("[finance:create-receipt]", error.message);
+    redirect(`/finance?error=create_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidateFinance();
+  redirect("/finance?message=receipt_created");
+}
+
+export async function updatePaymentReceipt(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+  const orderId = String(formData.get("orderId") ?? "").trim();
+
+  if (!canWriteFinance) {
+    redirect("/finance?error=not_allowed");
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect("/finance?error=preview_mode");
+  }
+
+  const receiptId = String(formData.get("receiptId") ?? "").trim();
+  if (!receiptId) {
+    redirect("/finance?error=missing_fields");
+  }
+
+  const payload = readPaymentReceiptPayload(formData);
+  if ("error" in payload) {
+    redirect(`/finance?error=${payload.error}`);
+  }
+
+  const supabase = await createClient();
+  const { data: order, error: orderError } = await supabase.from("orders").select("customer_id").eq("id", orderId).maybeSingle();
+
+  if (orderError || !order) {
+    redirect(`/finance?error=order_not_found&detail=${encodeURIComponent(orderError?.message ?? "找不到关联订单。")}`);
+  }
+
+  const { error } = await supabase
+    .from("payment_receipts")
+    .update({
+      ...(payload as Database["public"]["Tables"]["payment_receipts"]["Update"]),
+      customer_id: (order as { customer_id: string }).customer_id,
+    } as never)
+    .eq("id", receiptId);
+
+  if (error) {
+    console.error("[finance:update-receipt]", error.message);
+    redirect(`/finance?error=update_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidateFinance();
+  redirect("/finance?message=receipt_updated");
+}
+
+export async function createSupplierPayment(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+
+  if (!canWriteFinance) {
+    redirect("/finance?error=not_allowed");
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect("/finance?error=preview_mode");
+  }
+
+  const payload = readSupplierPaymentPayload(formData);
+  if ("error" in payload) {
+    redirect(`/finance?error=${payload.error}`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("supplier_payments").insert(payload as never);
+
+  if (error) {
+    console.error("[finance:create-supplier-payment]", error.message);
+    redirect(`/finance?error=supplier_create_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidateFinance();
+  redirect("/finance?message=supplier_payment_created");
+}
+
+export async function updateSupplierPayment(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+
+  if (!canWriteFinance) {
+    redirect("/finance?error=not_allowed");
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect("/finance?error=preview_mode");
+  }
+
+  const paymentId = String(formData.get("paymentId") ?? "").trim();
+  if (!paymentId) {
+    redirect("/finance?error=missing_fields");
+  }
+
+  const payload = readSupplierPaymentPayload(formData);
+  if ("error" in payload) {
+    redirect(`/finance?error=${payload.error}`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("supplier_payments").update(payload as never).eq("id", paymentId);
+
+  if (error) {
+    console.error("[finance:update-supplier-payment]", error.message);
+    redirect(`/finance?error=supplier_update_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidateFinance();
+  redirect("/finance?message=supplier_payment_updated");
+}
+
+function readPaymentReceiptPayload(formData: FormData):
+  | Database["public"]["Tables"]["payment_receipts"]["Insert"]
+  | Database["public"]["Tables"]["payment_receipts"]["Update"]
+  | { error: string } {
+  const orderId = String(formData.get("orderId") ?? "").trim();
+  const receivedOn = String(formData.get("receivedOn") ?? "").trim();
+  const amountInput = String(formData.get("amountJpy") ?? "").trim();
+  const method = String(formData.get("method") ?? "bank_transfer").trim();
+  const status = String(formData.get("status") ?? "received").trim();
+  const referenceNo = String(formData.get("referenceNo") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (!orderId || !receivedOn || !amountInput || !method || !status) {
+    return { error: "missing_fields" };
+  }
+
+  const amountJpy = Number(amountInput);
+  if (Number.isNaN(amountJpy) || amountJpy <= 0) {
+    return { error: "invalid_amount" };
+  }
+
+  if (!VALID_PAYMENT_METHODS.includes(method as (typeof VALID_PAYMENT_METHODS)[number])) {
+    return { error: "invalid_method" };
+  }
+
+  if (!VALID_RECEIPT_STATUSES.includes(status as (typeof VALID_RECEIPT_STATUSES)[number])) {
+    return { error: "invalid_status" };
+  }
+
+  return {
+    order_id: orderId,
+    received_on: receivedOn,
+    amount_jpy: amountJpy,
+    method: method as Database["public"]["Tables"]["payment_receipts"]["Insert"]["method"],
+    status: status as Database["public"]["Tables"]["payment_receipts"]["Insert"]["status"],
+    reference_no: referenceNo || null,
+    notes: notes || null,
+  };
+}
+
+function readSupplierPaymentPayload(formData: FormData):
+  | Database["public"]["Tables"]["supplier_payments"]["Insert"]
+  | Database["public"]["Tables"]["supplier_payments"]["Update"]
+  | { error: string } {
+  const orderId = String(formData.get("orderId") ?? "").trim();
+  const supplierName = String(formData.get("supplierName") ?? "").trim();
+  const category = String(formData.get("category") ?? "").trim();
+  const paidOn = String(formData.get("paidOn") ?? "").trim();
+  const amountInput = String(formData.get("amountJpy") ?? "").trim();
+  const method = String(formData.get("method") ?? "bank_transfer").trim();
+  const status = String(formData.get("status") ?? "paid").trim();
+  const referenceNo = String(formData.get("referenceNo") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (!orderId || !supplierName || !category || !paidOn || !amountInput || !method || !status) {
+    return { error: "missing_fields" };
+  }
+
+  const amountJpy = Number(amountInput);
+  if (Number.isNaN(amountJpy) || amountJpy <= 0) {
+    return { error: "invalid_amount" };
+  }
+
+  if (!VALID_COST_CATEGORIES.includes(category as (typeof VALID_COST_CATEGORIES)[number])) {
+    return { error: "invalid_category" };
+  }
+
+  if (!VALID_PAYMENT_METHODS.includes(method as (typeof VALID_PAYMENT_METHODS)[number])) {
+    return { error: "invalid_method" };
+  }
+
+  if (!VALID_SUPPLIER_PAYMENT_STATUSES.includes(status as (typeof VALID_SUPPLIER_PAYMENT_STATUSES)[number])) {
+    return { error: "invalid_supplier_status" };
+  }
+
+  return {
+    order_id: orderId,
+    supplier_name: supplierName,
+    category: category as Database["public"]["Tables"]["supplier_payments"]["Insert"]["category"],
+    paid_on: paidOn,
+    amount_jpy: amountJpy,
+    method: method as Database["public"]["Tables"]["supplier_payments"]["Insert"]["method"],
+    status: status as Database["public"]["Tables"]["supplier_payments"]["Insert"]["status"],
+    reference_no: referenceNo || null,
+    notes: notes || null,
+  };
+}
+
+function revalidateFinance() {
+  revalidatePath("/finance");
+  revalidatePath("/customers");
+  revalidatePath("/orders");
+  revalidatePath("/profit");
+  revalidatePath("/dashboard");
+}
