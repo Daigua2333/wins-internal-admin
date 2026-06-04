@@ -25,3 +25,18 @@ export function isSupabaseConfigured() {
 
   return !PLACEHOLDER_VALUES.has(url) && !PLACEHOLDER_VALUES.has(publishableKey);
 }
+
+export function getSiteUrl() {
+  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const vercelUrl = process.env.NEXT_PUBLIC_VERCEL_URL?.trim() ?? process.env.VERCEL_URL?.trim();
+
+  if (configuredSiteUrl) {
+    return configuredSiteUrl.replace(/\/$/, "");
+  }
+
+  if (vercelUrl) {
+    return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  }
+
+  return "http://localhost:3000";
+}

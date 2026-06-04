@@ -78,7 +78,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 NEXT_PUBLIC_SITE_URL=https://admin.winskokusai.com
 ```
 
-虽然当前代码没有强依赖这个变量，但它对后续 Auth 跳转和统一环境判断很有帮助。
+当前代码会使用这个变量生成 Supabase 邮件确认回跳地址。正式上线时建议把它配置好。
 
 ## 第四步：配置 Supabase 生产库
 

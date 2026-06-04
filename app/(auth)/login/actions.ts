@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { ensureCurrentUserProfile } from "@/lib/auth/session";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSiteUrl, isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 export async function login(formData: FormData) {
@@ -48,10 +48,14 @@ export async function signup(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const emailRedirectTo = `${getSiteUrl()}/login`;
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo,
+    },
   });
 
   if (error) {

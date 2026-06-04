@@ -2,6 +2,15 @@
 
 本文件按阶段记录 `WINS Internal Admin` 的重要改动，方便项目交接、回顾和后续持续追加。
 
+## 2026-06-04
+
+### Vercel 生产部署准备
+
+- 将 `next` 与 `eslint-config-next` 升级到 `15.3.8`，避开 Vercel 构建日志中提示的 `15.3.2` 安全风险版本。
+- 新增 `NEXT_PUBLIC_SITE_URL` 配置，用于生产环境生成 Supabase 邮件确认回跳地址。
+- 登录注册 action 已改为优先使用 `NEXT_PUBLIC_SITE_URL`，未配置时再回退到本地站点地址。
+- Vercel 上线手册已补充生产站点 URL 说明，方便后续绑定 `admin.winskokusai.com`。
+
 ## 2026-05-25
 
 ### 正式上线手册
