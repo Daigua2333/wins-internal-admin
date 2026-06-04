@@ -6,7 +6,12 @@
 
 ### Vercel 生产部署准备
 
-- 将 `next` 与 `eslint-config-next` 升级到 `15.3.8`，避开 Vercel 构建日志中提示的 `15.3.2` 安全风险版本。
+- 将 `next` 与 `eslint-config-next` 升级到 `16.2.7`，避开 Vercel 构建日志中提示的 `15.3.2` 安全风险版本，并让 `npm audit --omit=dev` 回到 `0 vulnerabilities`。
+- 生产构建脚本显式使用 `next build --webpack`，避免 Next 16 默认 Turbopack 在受限构建环境中触发端口绑定类异常。
+- 将 ESLint 配置迁移到 `eslint-config-next/core-web-vitals` flat config 直接导入方式，去掉 `FlatCompat` 兼容桥导致的循环引用问题。
+- 暂时关闭 `react-hooks/set-state-in-effect` 规则，保留当前工作台选中态同步逻辑，后续可单独做 React 状态模型重构。
+- 通过 `overrides` 固定 `postcss@8.5.15`，让 Next 内部依赖也使用安全补丁版。
+- 将 Next 请求拦截入口从旧的 `middleware.ts` 文件约定迁移到 `proxy.ts`，消除 Next 16 的文件命名迁移提醒。
 - 新增 `NEXT_PUBLIC_SITE_URL` 配置，用于生产环境生成 Supabase 邮件确认回跳地址。
 - 登录注册 action 已改为优先使用 `NEXT_PUBLIC_SITE_URL`，未配置时再回退到本地站点地址。
 - Vercel 上线手册已补充生产站点 URL 说明，方便后续绑定 `admin.winskokusai.com`。

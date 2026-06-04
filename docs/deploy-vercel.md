@@ -31,7 +31,7 @@
 - `Next.js` 项目可正常构建
 - `npm run verify` 可通过
 - `Supabase Auth` 已接入
-- `middleware` 已具备受保护路由校验
+- `proxy.ts` 已具备受保护路由校验
 - 核心模块已具备真实数据入口
 
 ## 第一步：准备 Git 仓库
@@ -52,11 +52,13 @@
 2. 选择你的 GitHub 仓库
 3. Framework 保持 `Next.js`
 4. Root Directory 选择当前项目根目录
-5. Build Command 保持默认 `next build`
+5. Build Command 保持 Vercel 默认，或显式填写 `npm run build`
 6. Install Command 保持默认 `npm install`
 7. 点击 `Deploy`
 
 当前项目的 `main` 分支很适合作为生产分支。
+
+当前 `package.json` 的 `build` 脚本已固定为 `next build --webpack`。如果在 Vercel 手动覆盖 Build Command，请不要直接填写 `next build`，否则会绕过这个稳定构建参数。
 
 ## 第三步：配置 Vercel 环境变量
 

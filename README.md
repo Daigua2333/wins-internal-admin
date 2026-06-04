@@ -26,7 +26,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 
 ## Latest Update
 
-- `Vercel 上线准备` 已补齐，Next.js 已升级到 `15.3.8` 补丁版，并新增 `NEXT_PUBLIC_SITE_URL` 用于生产环境 Supabase 邮件确认回跳。
+- `Vercel 上线准备` 已补齐，Next.js 已升级到 `16.2.7`，生产构建显式使用 webpack，并新增 `NEXT_PUBLIC_SITE_URL` 用于生产环境 Supabase 邮件确认回跳。
 - `客户管理` 已升级为真实工作台，支持新增客户、编辑联系人与账期、切换合作状态、记录跟进留痕。
 - `客户管理` 现已补充历史订单时间线与报价单关联视图，可在客户页内直接回看往来业务。
 - `客户管理` 现已支持从历史订单时间线直接跳转到订单工作台并自动定位对应订单。
@@ -205,7 +205,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 
 - 未配置 Supabase 时，登录页仍可直接进入后台预览
 - 配置 Supabase 环境变量后，登录页会自动切换为真实登录模式
-- middleware 已切换为 Supabase SSR 会话刷新结构
+- Next.js `proxy.ts` 已切换为 Supabase SSR 会话刷新结构
 - 设置页已提供 Supabase 状态卡与连接健康检查
 - 之前的 mock 登录接口仍保留，方便兼容过渡
 
@@ -214,7 +214,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 - [app/(auth)/login/page.tsx](/Users/jiaxinli/Desktop/公司管理系统/app/(auth)/login/page.tsx)
 - [app/(auth)/login/actions.ts](/Users/jiaxinli/Desktop/公司管理系统/app/(auth)/login/actions.ts)
 - [app/(dashboard)/settings/actions.ts](/Users/jiaxinli/Desktop/公司管理系统/app/(dashboard)/settings/actions.ts)
-- [middleware.ts](/Users/jiaxinli/Desktop/公司管理系统/middleware.ts)
+- [proxy.ts](/Users/jiaxinli/Desktop/公司管理系统/proxy.ts)
 - [app/api/mock-login/route.ts](/Users/jiaxinli/Desktop/公司管理系统/app/api/mock-login/route.ts)
 - [lib/supabase/config.ts](/Users/jiaxinli/Desktop/公司管理系统/lib/supabase/config.ts)
 - [lib/supabase/middleware.ts](/Users/jiaxinli/Desktop/公司管理系统/lib/supabase/middleware.ts)
@@ -297,7 +297,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 
 - Supabase 环境变量读取与启用判断
 - 登录 server action
-- SSR middleware 会话刷新与受保护路由重定向
+- SSR proxy 会话刷新与受保护路由重定向
 
 ## 文档说明
 
@@ -347,7 +347,7 @@ lib/
 supabase/
   schema.sql                 第一版数据库结构
   seed.sql                   示例测试数据
-middleware.ts                当前开发态放行逻辑
+proxy.ts                     Next.js 16 请求代理与受保护路由逻辑
 ```
 
 ## 本地运行
