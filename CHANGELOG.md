@@ -12,6 +12,7 @@
 - 暂时关闭 `react-hooks/set-state-in-effect` 规则，保留当前工作台选中态同步逻辑，后续可单独做 React 状态模型重构。
 - 通过 `overrides` 固定 `postcss@8.5.15`，让 Next 内部依赖也使用安全补丁版。
 - 将 Next 请求拦截入口从旧的 `middleware.ts` 文件约定迁移到 `proxy.ts`，消除 Next 16 的文件命名迁移提醒。
+- 在 `package.json` 中声明 Node.js `>=20.9.0`，避免 Vercel 使用旧 Node 版本构建 Next 16。
 - 新增 `NEXT_PUBLIC_SITE_URL` 配置，用于生产环境生成 Supabase 邮件确认回跳地址。
 - 登录注册 action 已改为优先使用 `NEXT_PUBLIC_SITE_URL`，未配置时再回退到本地站点地址。
 - Vercel 上线手册已补充生产站点 URL 说明，方便后续绑定 `admin.winskokusai.com`。
