@@ -60,7 +60,7 @@
 
 当前 `package.json` 的 `build` 脚本已固定为 `next build --webpack`。如果在 Vercel 手动覆盖 Build Command，请不要直接填写 `next build`，否则会绕过这个稳定构建参数。
 
-当前项目使用 `Next.js 16`，请确保 Vercel 的 Node.js 版本为 `20.9.0` 或以上。若 Vercel 项目里曾手动固定过旧 Node 版本，请在 `Settings > General > Node.js Version` 调整到 Node 20 或 Node 22。
+当前项目使用 `Next.js 16`，`package.json` 已固定生产 Node.js 为 `22.x`。若 Vercel 项目里曾手动固定过旧 Node 版本，请在 `Settings > General > Node.js Version` 调整到 Node 22。
 
 ## 第三步：配置 Vercel 环境变量
 
