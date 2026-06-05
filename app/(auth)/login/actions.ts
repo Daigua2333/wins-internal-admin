@@ -40,11 +40,31 @@ export async function signup(formData: FormData) {
     redirect("/dashboard");
   }
 
+  const fullName = String(formData.get("fullName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
+  const inviteCode = String(formData.get("inviteCode") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const configuredInviteCode = process.env.WINS_SIGNUP_INVITE_CODE?.trim();
 
-  if (!email || !password) {
-    redirect("/login?error=missing_credentials");
+  if (!configuredInviteCode) {
+    redirect("/login?mode=signup&error=signup_closed");
+  }
+
+  if (!fullName || !email || !inviteCode || !password || !confirmPassword) {
+    redirect("/login?mode=signup&error=missing_signup_fields");
+  }
+
+  if (inviteCode !== configuredInviteCode) {
+    redirect("/login?mode=signup&error=invalid_invite_code");
+  }
+
+  if (password.length < 8) {
+    redirect("/login?mode=signup&error=weak_password");
+  }
+
+  if (password !== confirmPassword) {
+    redirect("/login?mode=signup&error=password_mismatch");
   }
 
   const supabase = await createClient();
@@ -55,16 +75,19 @@ export async function signup(formData: FormData) {
     password,
     options: {
       emailRedirectTo,
+      data: {
+        full_name: fullName,
+      },
     },
   });
 
   if (error) {
     console.error("[auth:signup]", error.message);
-    redirect(`/login?error=signup_failed&detail=${encodeURIComponent(error.message)}`);
+    redirect(`/login?mode=signup&error=signup_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
   if (!data.session) {
-    redirect("/login?message=check_email");
+    redirect("/login?mode=signup&message=check_email");
   }
 
   await ensureCurrentUserProfile();

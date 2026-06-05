@@ -26,6 +26,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 
 ## Latest Update
 
+- `登录与注册` 页面已升级为正式入口，支持登录/注册双模式、注册确认密码、姓名写入 Supabase metadata，并通过 `WINS_SIGNUP_INVITE_CODE` 控制内部注册口令。
 - `Vercel 上线准备` 已补齐，Next.js 已升级到 `16.2.7`，生产构建显式使用 webpack，并新增 `NEXT_PUBLIC_SITE_URL` 用于生产环境 Supabase 邮件确认回跳。
 - `生产构建检查` 已从 `.next-dev` 开发缓存目录解耦，避免本地重复缓存类型文件影响 `build:clean`。
 - `客户管理` 已升级为真实工作台，支持新增客户、编辑联系人与账期、切换合作状态、记录跟进留痕。

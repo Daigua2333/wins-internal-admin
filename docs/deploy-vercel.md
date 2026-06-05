@@ -69,6 +69,7 @@
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+WINS_SIGNUP_INVITE_CODE=your-internal-signup-code
 ```
 
 建议：
@@ -83,6 +84,8 @@ NEXT_PUBLIC_SITE_URL=https://admin.winskokusai.com
 ```
 
 当前代码会使用这个变量生成 Supabase 邮件确认回跳地址。正式上线时建议把它配置好。
+
+`WINS_SIGNUP_INVITE_CODE` 是内部注册口令。注册页会要求员工填写这个口令，未配置时注册入口会保持关闭，避免公开域名上的后台被外部人员随意注册。
 
 ## 第四步：配置 Supabase 生产库
 
@@ -197,6 +200,7 @@ admin
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+WINS_SIGNUP_INVITE_CODE=
 ```
 
 推荐额外准备：
