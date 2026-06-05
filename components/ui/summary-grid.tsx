@@ -18,7 +18,7 @@ export function SummaryGrid({ items }: SummaryGridProps) {
         >
           <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-cyan-100/45 blur-2xl" />
           <p className="text-sm text-slate-500">{item.title}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">{item.value}</p>
+          <p className="mt-3 break-words text-3xl font-semibold tracking-tight text-slate-900">{item.value}</p>
           <p className="mt-2 text-sm leading-6 text-slate-500">{item.detail}</p>
         </div>
       ))}

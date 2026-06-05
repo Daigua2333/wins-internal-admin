@@ -53,7 +53,7 @@ export function DataTable({ columns, rows, onRowClick, selectedRowIndex, emptyMe
                 )}
               >
                 {Object.entries(row).map(([key, value]) => (
-                  <td key={key} className="whitespace-nowrap px-4 py-4 text-sm text-slate-700 transition-colors group-hover:text-slate-900">
+                  <td key={key} className="max-w-[18rem] whitespace-normal break-words px-4 py-4 text-sm text-slate-700 transition-colors group-hover:text-slate-900">
                     {key === "status" ? <Badge label={value} tone={resolveTone(value)} /> : value}
                   </td>
                 ))}

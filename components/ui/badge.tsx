@@ -14,8 +14,8 @@ type BadgeProps = {
 
 export function Badge({ label, tone = "neutral" }: BadgeProps) {
   return (
-    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset backdrop-blur", toneMap[tone])}>
-      {label}
+    <span className={cn("inline-flex max-w-full min-w-0 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset backdrop-blur", toneMap[tone])}>
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   );
 }
