@@ -24,6 +24,7 @@ import type { CustomerOperationsRecord } from "@/lib/loaders/admin";
 type CustomerOperationsWorkbenchProps = {
   records: CustomerOperationsRecord[];
   canWriteCustomers: boolean;
+  initialQuery?: string;
 };
 
 const filterItems = ["全部", "长期合作", "跟进中", "已结清", "已停用"];
@@ -34,12 +35,16 @@ const statusOptions = [
   { value: "inactive", label: "已停用" },
 ] as const;
 
-export function CustomerOperationsWorkbench({ records, canWriteCustomers }: CustomerOperationsWorkbenchProps) {
-  const [query, setQuery] = useState("");
+export function CustomerOperationsWorkbench({ records, canWriteCustomers, initialQuery }: CustomerOperationsWorkbenchProps) {
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [activeFilter, setActiveFilter] = useState("全部");
   const [selectedId, setSelectedId] = useState<string | null>(records[0]?.id ?? null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(initialQuery ?? "");
+  }, [initialQuery]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {

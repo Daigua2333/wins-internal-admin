@@ -12,6 +12,7 @@ type PricingPageProps = {
     error?: string;
     detail?: string;
     quoteNo?: string;
+    query?: string;
   }>;
 };
 
@@ -49,6 +50,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
         customers={customerOptions.customers}
         canWriteQuotations={canWriteQuotations}
         canConvertToOrder={canConvertToOrder}
+        initialQuery={params.query}
       />
     </>
   );

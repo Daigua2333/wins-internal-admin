@@ -19,6 +19,7 @@ import type { DriverOperationsRecord } from "@/lib/loaders/admin";
 type DriverOperationsWorkbenchProps = {
   records: DriverOperationsRecord[];
   canWriteDrivers: boolean;
+  initialQuery?: string;
 };
 
 const filterItems = ["全部", "可派单", "已排班", "休假中", "停用", "全职", "兼职", "合作"];
@@ -29,12 +30,16 @@ const statusOptions = [
   { value: "inactive", label: "停用" },
 ];
 
-export function DriverOperationsWorkbench({ records, canWriteDrivers }: DriverOperationsWorkbenchProps) {
-  const [query, setQuery] = useState("");
+export function DriverOperationsWorkbench({ records, canWriteDrivers, initialQuery }: DriverOperationsWorkbenchProps) {
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [activeFilter, setActiveFilter] = useState("全部");
   const [selectedId, setSelectedId] = useState<string | null>(records[0]?.id ?? null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(initialQuery ?? "");
+  }, [initialQuery]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {

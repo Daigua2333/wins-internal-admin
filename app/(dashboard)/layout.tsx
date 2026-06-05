@@ -3,13 +3,19 @@ import { ROLE_LABELS, ROLE_PERMISSIONS } from "@/lib/auth/roles";
 import { getCurrentProfile, getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { AccountDisabledCard } from "@/components/ui/account-disabled-card";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { getOperationsReminderSnapshot, getOrderCreateOptions } from "@/lib/loaders/admin";
+import { getNotificationSettings, getOperationsPolicySettings } from "@/lib/settings/runtime";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [profile, user, canCreateOrder] = await Promise.all([
+  const [profile, user, canCreateOrder, orderOptions, notificationSettings, operationsPolicy] = await Promise.all([
     getCurrentProfile(),
     getCurrentUser(),
     hasPermission("orders.write"),
+    getOrderCreateOptions(),
+    getNotificationSettings(),
+    getOperationsPolicySettings(),
   ]);
+  const reminders = await getOperationsReminderSnapshot(notificationSettings.reminderLeadDays);
 
   const navItems =
     profile
@@ -26,6 +32,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
       userEmail={user?.email}
       roleLabel={profile ? ROLE_LABELS[profile.role] : "未分配角色"}
       canCreateOrder={canCreateOrder}
+      orderOptions={orderOptions}
+      reminders={reminders}
+      defaultStartTime={operationsPolicy.dailyTourDefaultStartTime}
+      reminderLeadDays={notificationSettings.reminderLeadDays}
+      targetGrossMarginRate={operationsPolicy.targetGrossMarginRate}
     >
       {children}
     </DashboardShell>

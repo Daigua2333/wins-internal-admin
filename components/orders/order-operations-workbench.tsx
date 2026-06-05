@@ -25,6 +25,7 @@ type OrderOperationsWorkbenchProps = {
   costEntries: OrderCostEntry[];
   canWriteOrders: boolean;
   initialSelectedId?: string;
+  initialQuery?: string;
   reminders: OperationsReminderSnapshot;
 };
 
@@ -45,9 +46,10 @@ export function OrderOperationsWorkbench({
   costEntries,
   canWriteOrders,
   initialSelectedId,
+  initialQuery,
   reminders,
 }: OrderOperationsWorkbenchProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [activeFilter, setActiveFilter] = useState("全部");
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     records.some((record) => record.id === initialSelectedId) ? initialSelectedId ?? null : records[0]?.id ?? null,
@@ -60,6 +62,10 @@ export function OrderOperationsWorkbench({
       setSelectedId(initialSelectedId);
     }
   }, [initialSelectedId, records]);
+
+  useEffect(() => {
+    setQuery(initialQuery ?? "");
+  }, [initialQuery]);
 
   const pendingApprovalRecords = useMemo(
     () =>

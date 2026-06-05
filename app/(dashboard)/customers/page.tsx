@@ -11,6 +11,7 @@ type CustomersPageProps = {
     message?: string;
     error?: string;
     detail?: string;
+    query?: string;
   }>;
 };
 
@@ -41,7 +42,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
 
       <SummaryGrid items={summaryItems} />
 
-      <CustomerOperationsWorkbench records={records} canWriteCustomers={canWriteCustomers} />
+      <CustomerOperationsWorkbench records={records} canWriteCustomers={canWriteCustomers} initialQuery={params.query} />
     </>
   );
 }

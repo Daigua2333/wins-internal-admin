@@ -12,6 +12,7 @@ type DriversPageProps = {
     message?: string;
     error?: string;
     detail?: string;
+    query?: string;
   }>;
 };
 
@@ -43,7 +44,7 @@ export default async function DriversPage({ searchParams }: DriversPageProps) {
 
       <SummaryGrid items={summaryItems} />
 
-      <DriverOperationsWorkbench records={operationsRecords} canWriteDrivers={canWriteDrivers} />
+      <DriverOperationsWorkbench records={operationsRecords} canWriteDrivers={canWriteDrivers} initialQuery={params.query} />
 
       <DriverScheduleStudio snapshot={scheduleSnapshot} />
     </>

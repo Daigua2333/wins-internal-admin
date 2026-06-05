@@ -21,6 +21,7 @@ type QuotationOperationsWorkbenchProps = {
   customers: OrderCreateOption[];
   canWriteQuotations: boolean;
   canConvertToOrder: boolean;
+  initialQuery?: string;
 };
 
 const filterItems = ["全部", "待确认", "已发送", "已接受", "已过期"];
@@ -37,12 +38,17 @@ export function QuotationOperationsWorkbench({
   customers,
   canWriteQuotations,
   canConvertToOrder,
+  initialQuery,
 }: QuotationOperationsWorkbenchProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [activeFilter, setActiveFilter] = useState("全部");
   const [selectedId, setSelectedId] = useState<string | null>(records[0]?.id ?? null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(initialQuery ?? "");
+  }, [initialQuery]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {

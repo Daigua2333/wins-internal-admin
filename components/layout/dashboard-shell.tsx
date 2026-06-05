@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import type { NavConfigItem } from "@/lib/auth/navigation";
+import type { OperationsReminderSnapshot, OrderCreateOption } from "@/lib/loaders/admin";
 
 type DashboardShellProps = {
   children: React.ReactNode;
@@ -13,9 +14,28 @@ type DashboardShellProps = {
   userEmail?: string;
   roleLabel?: string;
   canCreateOrder?: boolean;
+  orderOptions?: {
+    customers: OrderCreateOption[];
+    assignees: OrderCreateOption[];
+  };
+  reminders?: OperationsReminderSnapshot;
+  defaultStartTime?: string;
+  reminderLeadDays?: number;
+  targetGrossMarginRate?: number;
 };
 
-export function DashboardShell({ children, navItems, userEmail, roleLabel, canCreateOrder }: DashboardShellProps) {
+export function DashboardShell({
+  children,
+  navItems,
+  userEmail,
+  roleLabel,
+  canCreateOrder,
+  orderOptions,
+  reminders,
+  defaultStartTime,
+  reminderLeadDays,
+  targetGrossMarginRate,
+}: DashboardShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -77,6 +97,11 @@ export function DashboardShell({ children, navItems, userEmail, roleLabel, canCr
             userEmail={userEmail}
             roleLabel={roleLabel}
             canCreateOrder={canCreateOrder}
+            orderOptions={orderOptions}
+            reminders={reminders}
+            defaultStartTime={defaultStartTime}
+            reminderLeadDays={reminderLeadDays}
+            targetGrossMarginRate={targetGrossMarginRate}
           />
           <main className="space-y-4 rounded-[2rem] border border-white/40 bg-white/20 p-1">{children}</main>
         </div>
