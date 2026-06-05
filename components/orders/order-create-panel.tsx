@@ -119,6 +119,18 @@ export function OrderCreatePanel({
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">出发 / 集合时间</label>
+                <input
+                  type="time"
+                  name="serviceStartTime"
+                  defaultValue={defaultStartTime ?? "09:00"}
+                  disabled={!canWriteOrders}
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                <p className="mt-2 text-xs leading-5 text-slate-500">会写入订单备注，便于在日历里追溯当天集合或出发时间。</p>
+              </div>
             </div>
           </FormSection>
 

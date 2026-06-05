@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Search, SquarePen } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search, SquarePen, Trash2 } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 
-import { addOrderCost, appendOrderOperationsLog, deleteOrderCost, updateOrderBasics, updateOrderDispatch, updateOrderStatus } from "@/app/(dashboard)/orders/actions";
+import { addOrderCost, appendOrderOperationsLog, deleteOrder, deleteOrderCost, updateOrderBasics, updateOrderDispatch, updateOrderStatus } from "@/app/(dashboard)/orders/actions";
+import { OrderCreatePanel } from "@/components/orders/order-create-panel";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmActionButton } from "@/components/ui/confirm-action-button";
+import { Dialog } from "@/components/ui/dialog";
 import { EmptyStateCard } from "@/components/ui/empty-state-card";
 import { FormSection } from "@/components/ui/form-section";
 import { PendingSubmitButton } from "@/components/ui/pending-submit-button";
@@ -30,6 +32,9 @@ type OperationsCalendarWorkbenchProps = {
   costEntries: OrderCostEntry[];
   canWriteOrders: boolean;
   reminders: OperationsReminderSnapshot;
+  defaultStartTime?: string;
+  reminderLeadDays?: number;
+  targetGrossMarginRate?: number;
 };
 
 const statusFilters = ["全部", "待确认", "已排车", "进行中", "已完成", "已取消"];
@@ -54,6 +59,9 @@ export function OperationsCalendarWorkbench({
   costEntries,
   canWriteOrders,
   reminders,
+  defaultStartTime,
+  reminderLeadDays,
+  targetGrossMarginRate,
 }: OperationsCalendarWorkbenchProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("全部");
@@ -61,6 +69,7 @@ export function OperationsCalendarWorkbench({
   const [selectedDate, setSelectedDate] = useState(snapshot.today);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<(typeof viewModes)[number]["value"]>("month");
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
   const monthOptions = useMemo(() => {
     const monthSet = new Set<string>();
@@ -69,7 +78,9 @@ export function OperationsCalendarWorkbench({
       monthSet.add(event.date.slice(0, 7));
     }
 
-    monthSet.add(snapshot.defaultMonth);
+    for (const month of buildMonthOptionRange(snapshot.today)) {
+      monthSet.add(month);
+    }
 
     return Array.from(monthSet)
       .sort()
@@ -77,7 +88,7 @@ export function OperationsCalendarWorkbench({
         value,
         label: formatMonthLabel(value),
       }));
-  }, [snapshot.defaultMonth, snapshot.events]);
+  }, [snapshot.events, snapshot.today]);
 
   const filteredEvents = useMemo(() => {
     return snapshot.events.filter((event) => {
@@ -147,6 +158,18 @@ export function OperationsCalendarWorkbench({
       }));
   }, [dailyMap]);
 
+  function setCalendarMonth(nextMonth: string) {
+    if (!/^\d{4}-\d{2}$/.test(nextMonth)) {
+      return;
+    }
+
+    setSelectedMonth(nextMonth);
+
+    if (!selectedDate.startsWith(nextMonth)) {
+      setSelectedDate(`${nextMonth}-01`);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <SectionCard
@@ -170,17 +193,38 @@ export function OperationsCalendarWorkbench({
               />
             </label>
 
-            <select
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value)}
-              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:bg-white"
-            >
-              {monthOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="flex min-h-12 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2">
+              <button
+                type="button"
+                onClick={() => setCalendarMonth(moveMonth(selectedMonth, -1))}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-cyan-700"
+                aria-label="查看上个月"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <input
+                type="month"
+                value={selectedMonth}
+                list="calendar-month-options"
+                onChange={(event) => setCalendarMonth(event.target.value)}
+                className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm font-medium text-slate-700 outline-none"
+              />
+              <datalist id="calendar-month-options">
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </datalist>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth(moveMonth(selectedMonth, 1))}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-cyan-700"
+                aria-label="查看下个月"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {statusFilters.map((filter) => (
@@ -256,7 +300,7 @@ export function OperationsCalendarWorkbench({
               <div className="mt-4 space-y-3">
                 {reminders.items.length ? (
                   reminders.items.slice(0, 6).map((item) => (
-                      <Link
+                    <Link
                       key={item.id}
                       href={item.href as Route}
                       className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition hover:border-cyan-300 hover:bg-cyan-50"
@@ -381,10 +425,30 @@ export function OperationsCalendarWorkbench({
                     <p className="text-sm text-slate-500">选中日期</p>
                     <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{formatDateDetail(selectedDate)}</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/95 p-3 text-white">
-                    <CalendarDays className="h-5 w-5" />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCreateOrderOpen(true)}
+                      disabled={!canWriteOrders}
+                      className="hidden h-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0f172a,#115e59)] px-4 text-sm font-medium text-white shadow-lg shadow-cyan-950/10 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300 md:inline-flex"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      为这一天建单
+                    </button>
+                    <div className="rounded-2xl bg-slate-950/95 p-3 text-white">
+                      <CalendarDays className="h-5 w-5" />
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateOrderOpen(true)}
+                  disabled={!canWriteOrders}
+                  className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0f172a,#115e59)] px-4 text-sm font-medium text-white shadow-lg shadow-cyan-950/10 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300 md:hidden"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  为这一天新建订单
+                </button>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                   {[
@@ -484,6 +548,31 @@ export function OperationsCalendarWorkbench({
 
                         {expandedOrderId === event.id ? (
                           <div className="mt-4 space-y-4 rounded-3xl border border-slate-200 bg-white p-4">
+                            <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-rose-950">删除这条订单</p>
+                                <p className="mt-1 text-sm leading-6 text-rose-800">
+                                  删除后会从运营日历、订单工作台和相关财务/成本视图中移除，关联成本与收付款记录会随订单级联删除。
+                                </p>
+                              </div>
+                              <form id={`calendar-delete-order-${event.id}`} action={deleteOrder}>
+                                <input type="hidden" name="redirectTo" value="/calendar" />
+                                <input type="hidden" name="orderId" value={event.id} />
+                                <ConfirmActionButton
+                                  formId={`calendar-delete-order-${event.id}`}
+                                  title="确认删除这条订单？"
+                                  description={`将删除 ${event.orderNo}，关联成本、回款和供应商付款记录也会一起移除。这个动作不可恢复。`}
+                                  confirmLabel="确认删除订单"
+                                  tone="danger"
+                                  disabled={!canWriteOrders}
+                                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-rose-300 bg-white px-5 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-rose-200 disabled:bg-rose-100 disabled:text-rose-300"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  删除订单
+                                </ConfirmActionButton>
+                              </form>
+                            </div>
+
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                               <p className="text-sm font-medium text-slate-900">状态流转</p>
                               <div className="mt-3 flex flex-wrap gap-2">
@@ -540,6 +629,16 @@ export function OperationsCalendarWorkbench({
                                         type="date"
                                         name="serviceDate"
                                         defaultValue={event.date}
+                                        disabled={!canWriteOrders}
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="mb-2 block text-sm font-medium text-slate-700">出发 / 集合时间</label>
+                                      <input
+                                        type="time"
+                                        name="serviceStartTime"
+                                        defaultValue={extractOrderStartTime(event.notes) ?? defaultStartTime ?? "09:00"}
                                         disabled={!canWriteOrders}
                                         className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                                       />
@@ -888,6 +987,28 @@ export function OperationsCalendarWorkbench({
           </div>
         </div>
       </SectionCard>
+
+      <Dialog
+        open={createOrderOpen}
+        onClose={() => setCreateOrderOpen(false)}
+        title={`为 ${formatDateDetail(selectedDate)} 新建订单`}
+        description="默认带入当前选中日期，也可以在表单里改成其他日期或调整出发 / 集合时间。"
+        eyebrow="Create Calendar Order"
+        maxWidthClassName="max-w-6xl"
+      >
+        <OrderCreatePanel
+          key={selectedDate}
+          customers={customers}
+          assignees={assignees}
+          canWriteOrders={canWriteOrders}
+          defaultServiceDate={selectedDate}
+          redirectTo="/calendar"
+          defaultStartTime={defaultStartTime}
+          reminderLeadDays={reminderLeadDays}
+          targetGrossMarginRate={targetGrossMarginRate}
+          variant="plain"
+        />
+      </Dialog>
     </section>
   );
 }
@@ -944,7 +1065,7 @@ function buildWeekDays(date: string, dailyMap: Map<string, OperationsCalendarEve
   return Array.from({ length: 7 }, (_, index) => {
     const current = new Date(weekStart);
     current.setDate(weekStart.getDate() + index);
-    const currentDate = current.toISOString().slice(0, 10);
+    const currentDate = formatDateKey(current);
     const events = dailyMap.get(currentDate) ?? [];
 
     return {
@@ -956,6 +1077,32 @@ function buildWeekDays(date: string, dailyMap: Map<string, OperationsCalendarEve
       events,
     };
   });
+}
+
+function buildMonthOptionRange(today: string) {
+  const [year, month] = today.split("-").map(Number);
+  const base = new Date(year, month - 1, 1);
+
+  return Array.from({ length: 25 }, (_, index) => {
+    const current = new Date(base);
+    current.setMonth(base.getMonth() + index - 12);
+    return formatMonthKey(current);
+  });
+}
+
+function moveMonth(value: string, delta: number) {
+  const [year, month] = value.split("-").map(Number);
+  const current = new Date(year, month - 1, 1);
+  current.setMonth(current.getMonth() + delta);
+  return formatMonthKey(current);
+}
+
+function formatMonthKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatDateKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function formatMonthLabel(value: string) {
@@ -977,6 +1124,11 @@ function formatDateDetail(value: string) {
     day: "numeric",
     weekday: "long",
   }).format(target);
+}
+
+function extractOrderStartTime(notes: string) {
+  const match = notes.match(/^\[schedule\]\[start_time:([0-2]\d:[0-5]\d)\]/m);
+  return match?.[1] ?? null;
 }
 
 function formatWeekday(value: Date) {

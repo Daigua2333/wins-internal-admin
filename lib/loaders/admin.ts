@@ -2059,13 +2059,8 @@ export async function getOperationsCalendarSnapshot(): Promise<OperationsCalenda
   const records = await getOrderOperationsRecords();
 
   const datedRecords = records.filter((record) => record.serviceDate);
-  const today = new Date();
-  const todayLabel = today.toISOString().slice(0, 10);
-  const defaultMonthDate =
-    datedRecords.length > 0
-      ? new Date(`${datedRecords[0].serviceDate}T00:00:00`)
-      : today;
-  const defaultMonth = `${defaultMonthDate.getFullYear()}-${String(defaultMonthDate.getMonth() + 1).padStart(2, "0")}`;
+  const todayLabel = formatTokyoDateKey();
+  const defaultMonth = todayLabel.slice(0, 7);
 
   return {
     today: todayLabel,
@@ -2946,6 +2941,20 @@ function formatMonthDay(value: Date) {
     month: "numeric",
     day: "numeric",
   }).format(value);
+}
+
+function formatTokyoDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const year = parts.find((part) => part.type === "year")?.value ?? String(value.getFullYear());
+  const month = parts.find((part) => part.type === "month")?.value ?? String(value.getMonth() + 1).padStart(2, "0");
+  const day = parts.find((part) => part.type === "day")?.value ?? String(value.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function formatWeekday(value: Date) {

@@ -25,6 +25,7 @@ export async function createOrder(formData: FormData) {
   const customerId = String(formData.get("customerId") ?? "").trim();
   const title = String(formData.get("title") ?? "").trim();
   const serviceDate = String(formData.get("serviceDate") ?? "").trim();
+  const serviceStartTime = String(formData.get("serviceStartTime") ?? "").trim();
   const assigneeId = String(formData.get("assigneeId") ?? "").trim();
   const revenueInput = String(formData.get("revenueJpy") ?? "").trim();
   const status = String(formData.get("status") ?? "pending_confirmation").trim() as OrderStatus;
@@ -34,6 +35,10 @@ export async function createOrder(formData: FormData) {
 
   if (!customerId || !title || !serviceDate) {
     redirect(`${redirectTo}?error=missing_fields`);
+  }
+
+  if (serviceStartTime && !isValidClockTime(serviceStartTime)) {
+    redirect(`${redirectTo}?error=invalid_start_time`);
   }
 
   const revenueJpy = revenueInput ? Number(revenueInput) : 0;
@@ -73,6 +78,7 @@ export async function createOrder(formData: FormData) {
     total_cost_jpy: 0,
     notes: buildRecurringOrderNotes({
       notes,
+      serviceStartTime,
       repeatMode,
       occurrenceIndex: index,
       totalOccurrences: serviceDates.length,
@@ -109,12 +115,18 @@ export async function updateOrderBasics(formData: FormData) {
   const customerId = String(formData.get("customerId") ?? "").trim();
   const title = String(formData.get("title") ?? "").trim();
   const serviceDate = String(formData.get("serviceDate") ?? "").trim();
+  const hasServiceStartTimeField = formData.has("serviceStartTime");
+  const serviceStartTime = String(formData.get("serviceStartTime") ?? "").trim();
   const assigneeId = String(formData.get("assigneeId") ?? "").trim();
   const revenueInput = String(formData.get("revenueJpy") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
 
   if (!orderId || !customerId || !title || !serviceDate) {
     redirect(`${redirectTo}?error=missing_fields`);
+  }
+
+  if (serviceStartTime && !isValidClockTime(serviceStartTime)) {
+    redirect(`${redirectTo}?error=invalid_start_time`);
   }
 
   const revenueJpy = Number(revenueInput);
@@ -130,7 +142,7 @@ export async function updateOrderBasics(formData: FormData) {
     service_date: serviceDate,
     assignee_profile_id: assigneeId || null,
     revenue_jpy: revenueJpy,
-    notes: notes || null,
+    notes: hasServiceStartTimeField ? buildOrderNotesWithStartTime(notes, serviceStartTime) : notes || null,
   };
 
   const { error } = await supabase.from("orders").update(payload as never).eq("id", orderId);
@@ -181,6 +193,40 @@ export async function updateOrderStatus(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/profit");
   redirect(`${redirectTo}?message=status_updated`);
+}
+
+export async function deleteOrder(formData: FormData) {
+  const redirectTo = resolveOrderRedirectPath(formData);
+  const canWriteOrders = await hasPermission("orders.write");
+
+  if (!canWriteOrders) {
+    redirect(`${redirectTo}?error=not_allowed`);
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect(`${redirectTo}?error=preview_mode`);
+  }
+
+  const orderId = String(formData.get("orderId") ?? "").trim();
+
+  if (!orderId) {
+    redirect(`${redirectTo}?error=missing_fields`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("orders").delete().eq("id", orderId);
+
+  if (error) {
+    console.error("[orders:delete]", error.message);
+    redirect(`${redirectTo}?error=delete_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/calendar");
+  revalidatePath("/orders");
+  revalidatePath("/dashboard");
+  revalidatePath("/profit");
+  revalidatePath("/finance");
+  redirect(`${redirectTo}?message=order_deleted`);
 }
 
 export async function appendOrderOperationsLog(formData: FormData) {
@@ -595,21 +641,34 @@ function buildRecurringServiceDates(input: {
 
 function buildRecurringOrderNotes(input: {
   notes: string;
+  serviceStartTime: string;
   repeatMode: string;
   occurrenceIndex: number;
   totalOccurrences: number;
   serviceDate: string;
 }) {
-  const metadata =
+  const scheduleMetadata = input.serviceStartTime ? `[schedule][start_time:${input.serviceStartTime}]` : "";
+  const recurringMetadata =
     input.repeatMode === "none"
       ? ""
       : `[recurring][mode:${input.repeatMode}][${input.occurrenceIndex + 1}/${input.totalOccurrences}][date:${input.serviceDate}]`;
 
-  if (!metadata) {
-    return input.notes || null;
-  }
+  return [scheduleMetadata, recurringMetadata, input.notes].filter(Boolean).join("\n") || null;
+}
 
-  return input.notes ? `${metadata}\n${input.notes}` : metadata;
+function buildOrderNotesWithStartTime(notes: string, serviceStartTime: string) {
+  const cleanedNotes = notes
+    .split("\n")
+    .filter((line) => !line.startsWith("[schedule][start_time:"))
+    .join("\n")
+    .trim();
+  const scheduleMetadata = serviceStartTime ? `[schedule][start_time:${serviceStartTime}]` : "";
+
+  return [scheduleMetadata, cleanedNotes].filter(Boolean).join("\n") || null;
+}
+
+function isValidClockTime(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
 function resolveOrderRedirectPath(formData: FormData) {

@@ -290,6 +290,7 @@ drop policy if exists "authenticated_read_orders" on public.orders;
 drop policy if exists "authenticated_read_trip_costs" on public.trip_costs;
 drop policy if exists "role_write_orders" on public.orders;
 drop policy if exists "role_update_orders" on public.orders;
+drop policy if exists "role_delete_orders" on public.orders;
 drop policy if exists "role_write_trip_costs" on public.trip_costs;
 drop policy if exists "role_update_trip_costs" on public.trip_costs;
 drop policy if exists "role_delete_trip_costs" on public.trip_costs;
@@ -331,6 +332,7 @@ create policy "authenticated_read_orders" on public.orders for select to authent
 create policy "authenticated_read_trip_costs" on public.trip_costs for select to authenticated using (true);
 create policy "role_write_orders" on public.orders for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_orders" on public.orders for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
+create policy "role_delete_orders" on public.orders for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_trip_costs" on public.trip_costs for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_trip_costs" on public.trip_costs for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_trip_costs" on public.trip_costs for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));

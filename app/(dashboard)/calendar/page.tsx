@@ -98,6 +98,9 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
         costEntries={costEntries}
         canWriteOrders={canWriteOrders}
         reminders={reminders}
+        defaultStartTime={operationsPolicy.dailyTourDefaultStartTime}
+        reminderLeadDays={notificationSettings.reminderLeadDays}
+        targetGrossMarginRate={operationsPolicy.targetGrossMarginRate}
       />
     </>
   );
@@ -175,6 +178,14 @@ function getCalendarOrdersFeedback(params: {
     };
   }
 
+  if (params.message === "order_deleted") {
+    return {
+      type: "success" as const,
+      message: "订单已删除。",
+      detail: "订单已经从运营日历、订单工作台、成本和财务关联视图中移除。",
+    };
+  }
+
   if (params.message === "ops_log_added") {
     return {
       type: "success" as const,
@@ -197,6 +208,10 @@ function getCalendarOrdersFeedback(params: {
 
   if (params.error === "invalid_amount") {
     return { type: "error" as const, message: "预计营收金额无效，请输入 0 或正数。" };
+  }
+
+  if (params.error === "invalid_start_time") {
+    return { type: "error" as const, message: "出发 / 集合时间无效，请使用 HH:mm 格式。" };
   }
 
   if (params.error === "invalid_repeat_mode") {
@@ -268,6 +283,14 @@ function getCalendarOrdersFeedback(params: {
       type: "error" as const,
       message: "成本同步失败。",
       detail: params.detail ? decodeURIComponent(params.detail) : "成本动作已执行，但订单总成本回写失败，请检查 orders 表更新策略。",
+    };
+  }
+
+  if (params.error === "delete_failed") {
+    return {
+      type: "error" as const,
+      message: "订单删除失败。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "请确认 orders 表删除策略已经在 Supabase 生效。",
     };
   }
 
