@@ -700,30 +700,59 @@ export async function getOrderCostEntries(): Promise<OrderCostEntry[]> {
   const { enabled } = getRepositories();
 
   if (!enabled) {
-    return [
-      {
-        id: "mock-cost-1",
-        orderId: "mock-order-1",
-        category: "vehicle",
-        categoryLabel: "车辆",
-        label: "成田接机车辆费",
-        amountJpy: 85000,
-        amountLabel: formatCurrency(85000),
-        supplierName: "Tokyo Partner Bus",
-        notes: "按 28 座中巴结算",
-      },
-      {
-        id: "mock-cost-2",
-        orderId: "mock-order-1",
-        category: "guide",
-        categoryLabel: "导游",
-        label: "中文导游服务费",
-        amountJpy: 42000,
-        amountLabel: formatCurrency(42000),
-        supplierName: "佐藤 美纪",
-        notes: "机场接送 + 东京市区带团",
-      },
-    ];
+    return buildMockOrderOperationsRecords().flatMap((order, index) => {
+      const vehicleCost = Math.round(order.revenueJpy * 0.34);
+      const driverCost = Math.round(order.revenueJpy * 0.09);
+      const guideCost = Math.round(order.revenueJpy * 0.1);
+      const miscCost = Math.max(order.totalCostJpy - vehicleCost - driverCost - guideCost, 0);
+
+      return [
+        {
+          id: `mock-cost-${index + 1}-vehicle`,
+          orderId: order.id,
+          category: "vehicle",
+          categoryLabel: "车辆",
+          label: `${order.vehicleName} 车辆费用`,
+          amountJpy: vehicleCost,
+          amountLabel: formatCurrency(vehicleCost),
+          supplierName: order.vehicleName.includes("合作") ? "合作车队" : "WINS 自有车辆",
+          notes: "按当前订单车型与线路里程估算。",
+        },
+        {
+          id: `mock-cost-${index + 1}-driver`,
+          orderId: order.id,
+          category: "driver",
+          categoryLabel: "司机",
+          label: `${order.driverName} 司机服务费`,
+          amountJpy: driverCost,
+          amountLabel: formatCurrency(driverCost),
+          supplierName: order.driverName,
+          notes: "包含当日基础工时与线路补贴。",
+        },
+        {
+          id: `mock-cost-${index + 1}-guide`,
+          orderId: order.id,
+          category: "guide",
+          categoryLabel: "导游",
+          label: `${order.guideName} 导游服务费`,
+          amountJpy: guideCost,
+          amountLabel: formatCurrency(guideCost),
+          supplierName: order.guideName,
+          notes: "按语种、服务时长和线路复杂度估算。",
+        },
+        {
+          id: `mock-cost-${index + 1}-misc`,
+          orderId: order.id,
+          category: "misc",
+          categoryLabel: "杂费",
+          label: "餐食 / 停车 / 运营杂费",
+          amountJpy: miscCost,
+          amountLabel: formatCurrency(miscCost),
+          supplierName: "WINS Operations",
+          notes: "用于演示成本拆分和利润核算。",
+        },
+      ];
+    });
   }
 
   const supabase = await createClient();
@@ -3050,30 +3079,43 @@ function mapCostCategory(category: string) {
 }
 
 function buildMockOrderOperationsRecords(): OrderOperationsRecord[] {
-  return orderRows.map((row, index) => ({
-    id: `mock-order-${index + 1}`,
-    orderNo: row.orderNo,
-    customerId: `mock-customer-${index + 1}`,
-    customerName: row.customer,
-    title: row.itinerary,
-    serviceDate: row.date,
-    assigneeId: `mock-assignee-${index + 1}`,
-    assigneeName: row.assignee,
-    vehicleId: `mock-vehicle-${index + 1}`,
-    vehicleName: fleetRows[index % fleetRows.length]?.plateNo ?? "待分配",
-    driverId: `mock-driver-${index + 1}`,
-    driverName: driverRows[index % driverRows.length]?.name ?? "待分配",
-    guideId: `mock-guide-${index + 1}`,
-    guideName: guideRows[index % guideRows.length]?.name ?? "待分配",
-    status: mapOrderStatusToCode(row.status),
-    statusLabel: row.status,
-    revenueJpy: parseCurrencyLabel(row.amount),
-    revenueLabel: row.amount,
-    totalCostJpy: Math.round(parseCurrencyLabel(row.amount) * 0.68),
-    totalCostLabel: formatCurrency(Math.round(parseCurrencyLabel(row.amount) * 0.68)),
-    grossProfitLabel: formatCurrency(parseCurrencyLabel(row.amount) - Math.round(parseCurrencyLabel(row.amount) * 0.68)),
-    notes: "当前为 mock 订单记录，可继续接入真实排车、派导游与备注跟进。",
-  }));
+  return orderRows.map((row, index) => {
+    const customerIndex = Math.max(
+      customerRows.findIndex((customer) => customer.company === row.customer),
+      0,
+    );
+    const resourceIndex = index % Math.max(fleetRows.length, 1);
+    const driverIndex = index % Math.max(driverRows.length, 1);
+    const guideIndex = index % Math.max(guideRows.length, 1);
+    const assignee = teamProfiles.find((profile) => profile.full_name === row.assignee) ?? teamProfiles[index % teamProfiles.length];
+    const revenueJpy = parseCurrencyLabel(row.amount);
+    const totalCostJpy = Math.round(revenueJpy * 0.677);
+
+    return {
+      id: `mock-order-${index + 1}`,
+      orderNo: row.orderNo,
+      customerId: `mock-customer-${customerIndex + 1}`,
+      customerName: row.customer,
+      title: row.itinerary,
+      serviceDate: row.date,
+      assigneeId: assignee?.id ?? null,
+      assigneeName: row.assignee,
+      vehicleId: `mock-vehicle-${resourceIndex + 1}`,
+      vehicleName: fleetRows[resourceIndex]?.plateNo ?? "待分配",
+      driverId: `mock-driver-${driverIndex + 1}`,
+      driverName: driverRows[driverIndex]?.name ?? "待分配",
+      guideId: `mock-guide-${guideIndex + 1}`,
+      guideName: guideRows[guideIndex]?.name ?? "待分配",
+      status: mapOrderStatusToCode(row.status),
+      statusLabel: row.status,
+      revenueJpy,
+      revenueLabel: row.amount,
+      totalCostJpy,
+      totalCostLabel: formatCurrency(totalCostJpy),
+      grossProfitLabel: formatCurrency(revenueJpy - totalCostJpy),
+      notes: row.notes ?? "当前为 2026-06 演示订单，可继续测试排车、派导游、成本、回款和日历功能。",
+    };
+  });
 }
 
 function buildMockPaymentReceiptRecords(): PaymentReceiptRecord[] {
