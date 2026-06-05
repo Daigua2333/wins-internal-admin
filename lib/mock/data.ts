@@ -10,6 +10,7 @@ export type Stat = {
   value: string;
   change: string;
   tone: "positive" | "warning" | "neutral";
+  href?: string;
 };
 
 export type TableRow = Record<string, string>;
@@ -27,10 +28,10 @@ export const navigation: NavItem[] = [
 ];
 
 export const dashboardStats: Stat[] = [
-  { title: "本月订单数", value: "186", change: "+12.4%", tone: "positive" },
-  { title: "进行中行程", value: "42", change: "8 个待确认", tone: "warning" },
-  { title: "本月营收", value: "¥24,800,000", change: "+18.2%", tone: "positive" },
-  { title: "平均毛利率", value: "31.6%", change: "较上月 +2.1%", tone: "positive" },
+  { title: "本月订单数", value: "186", change: "+12.4%", tone: "positive", href: "/orders" },
+  { title: "进行中行程", value: "42", change: "8 个待确认", tone: "warning", href: "/orders?status=进行中" },
+  { title: "本月营收", value: "¥24,800,000", change: "+18.2%", tone: "positive", href: "/finance" },
+  { title: "平均毛利率", value: "31.6%", change: "较上月 +2.1%", tone: "positive", href: "/profit" },
 ];
 
 export const orderRows = [

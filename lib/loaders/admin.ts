@@ -29,6 +29,26 @@ type SnapshotItem = {
   title: string;
   value: string;
   note: string;
+  href?: string;
+};
+export type DashboardPipelineCard = {
+  phase: string;
+  count: string;
+  detail: string;
+  href: string;
+  progress: number;
+};
+export type DashboardFocusItem = {
+  time: string;
+  title: string;
+  description: string;
+  href: string;
+};
+export type DashboardActionItem = {
+  title: string;
+  description: string;
+  href: string;
+  meta: string;
 };
 type ProfitPoint = {
   label: string;
@@ -1799,27 +1819,44 @@ export async function getDashboardStats(): Promise<Stat[]> {
     data.reduce((sum, item) => sum + Number(item.gross_margin_rate ?? 0), 0) / Math.max(data.length, 1);
 
   return [
-    { title: "本月订单数", value: String(totalOrders), change: "实时统计", tone: "positive" },
-    { title: "进行中行程", value: String(inProgress), change: `${pending} 个待确认`, tone: pending > 0 ? "warning" : "neutral" },
-    { title: "本月营收", value: formatCurrency(totalRevenue), change: "实时汇总", tone: "positive" },
-    { title: "平均毛利率", value: `${avgMargin.toFixed(1)}%`, change: "实时计算", tone: "positive" },
+    { title: "本月订单数", value: String(totalOrders), change: "实时统计", tone: "positive", href: "/orders" },
+    {
+      title: "进行中行程",
+      value: String(inProgress),
+      change: `${pending} 个待确认`,
+      tone: pending > 0 ? "warning" : "neutral",
+      href: "/orders?status=进行中",
+    },
+    { title: "本月营收", value: formatCurrency(totalRevenue), change: "实时汇总", tone: "positive", href: "/finance" },
+    { title: "平均毛利率", value: `${avgMargin.toFixed(1)}%`, change: "实时计算", tone: "positive", href: "/profit" },
   ];
 }
 
 export async function getDashboardSnapshots(): Promise<SnapshotItem[]> {
+  const fallback = operationsSnapshots.map((item) => ({
+    ...item,
+    href: item.title === "在途车辆" ? "/fleet?status=已派出" : item.title === "待处理报价" ? "/pricing?status=待确认" : "/orders",
+  }));
   const { enabled, vehicles, quotes } = getRepositories();
 
   if (!enabled) {
-    return operationsSnapshots;
+    return fallback;
   }
 
-  const [vehicleData, quoteData] = await Promise.all([vehicles.list({ limit: 100 }), quotes.list({ limit: 100 })]);
+  const [orderData, vehicleData, quoteData] = await Promise.all([
+    getOrderOperationsRecords(),
+    vehicles.list({ limit: 100 }),
+    quotes.list({ limit: 100 }),
+  ]);
 
-  if (!vehicleData.length && !quoteData.length) {
-    return operationsSnapshots;
+  if (!orderData.length && !vehicleData.length && !quoteData.length) {
+    return fallback;
   }
 
+  const activeOrders = orderData.filter((item) => !["completed", "cancelled"].includes(item.status)).length;
+  const pendingOrders = orderData.filter((item) => item.status === "pending_confirmation" || item.status === "draft").length;
   const activeVehicles = vehicleData.filter((item) => item.status === "available" || item.status === "assigned").length;
+  const assignedVehicles = vehicleData.filter((item) => item.status === "assigned").length;
   const maintenanceVehicles = vehicleData.filter((item) => item.status === "maintenance").length;
   const pendingQuotes = quoteData.filter((item) => ["draft", "sent"].includes(item.status)).length;
   const expiringQuotes = quoteData.filter((item) => item.valid_until).length;
@@ -1827,18 +1864,132 @@ export async function getDashboardSnapshots(): Promise<SnapshotItem[]> {
   return [
     {
       title: "订单运转",
-      value: `${Math.max(pendingQuotes, 0) + 18} 单`,
-      note: "按当前订单与报价动态估算",
+      value: `${formatNumber(activeOrders)} 单`,
+      note: `其中待确认 ${formatNumber(pendingOrders)} 单`,
+      href: "/orders?status=待确认",
     },
     {
       title: "在途车辆",
-      value: `${activeVehicles} 台`,
-      note: `保养中 ${maintenanceVehicles} 台`,
+      value: `${formatNumber(assignedVehicles || activeVehicles)} 台`,
+      note: `保养中 ${formatNumber(maintenanceVehicles)} 台`,
+      href: assignedVehicles > 0 ? "/fleet?status=已派出" : "/fleet",
     },
     {
       title: "待处理报价",
-      value: `${pendingQuotes} 份`,
-      note: `有效期内 ${expiringQuotes} 份`,
+      value: `${formatNumber(pendingQuotes)} 份`,
+      note: `有效期内 ${formatNumber(expiringQuotes)} 份`,
+      href: "/pricing?status=待确认",
+    },
+  ];
+}
+
+export async function getDashboardPipelineCards(): Promise<DashboardPipelineCard[]> {
+  const records = await getOrderOperationsRecords();
+
+  const pendingCount = records.filter((record) => record.status === "draft" || record.status === "pending_confirmation").length;
+  const scheduledCount = records.filter((record) => record.status === "scheduled").length;
+  const thisWeekCount = records.filter(
+    (record) => record.serviceDate && !["cancelled", "completed"].includes(record.status) && isDateWithinDays(record.serviceDate, 7),
+  ).length;
+  const maxCount = Math.max(pendingCount, scheduledCount, thisWeekCount, 1);
+
+  return [
+    {
+      phase: "待确认",
+      count: formatNumber(pendingCount),
+      detail: "客户确认 / 航班信息补全",
+      href: "/orders?status=待确认",
+      progress: calculateDashboardProgress(pendingCount, maxCount),
+    },
+    {
+      phase: "已排资源",
+      count: formatNumber(scheduledCount),
+      detail: "车辆、司机与导游已锁定",
+      href: "/orders?status=已排车",
+      progress: calculateDashboardProgress(scheduledCount, maxCount),
+    },
+    {
+      phase: "本周出团",
+      count: formatNumber(thisWeekCount),
+      detail: "点击进入运营日历追溯每日细节",
+      href: "/calendar",
+      progress: calculateDashboardProgress(thisWeekCount, maxCount),
+    },
+  ];
+}
+
+export async function getDashboardFocusItems(reminderLeadDays = 3): Promise<DashboardFocusItem[]> {
+  const reminders = await getOperationsReminderSnapshot(reminderLeadDays);
+
+  if (reminders.items.length) {
+    return reminders.items.slice(0, 3).map((item) => ({
+      time: item.dateLabel,
+      title: item.title,
+      description: item.detail,
+      href: item.href,
+    }));
+  }
+
+  return [
+    {
+      time: "今日",
+      title: "暂无紧急提醒",
+      description: "近期待出团、报价到期和车辆点检队列暂时没有高优先级事项。",
+      href: "/calendar",
+    },
+    {
+      time: "订单",
+      title: "复核订单工作台",
+      description: "可以继续检查待确认订单、排车状态和成本录入情况。",
+      href: "/orders",
+    },
+    {
+      time: "资源",
+      title: "查看车辆与排班",
+      description: "进入车辆或日历页面确认本周运力安排是否足够。",
+      href: "/fleet",
+    },
+  ];
+}
+
+export async function getDashboardActionItems(): Promise<DashboardActionItem[]> {
+  const [orders, quotations, vehicles] = await Promise.all([
+    getOrderOperationsRecords(),
+    getPricingOperationsRecords(),
+    getVehicleOperationsRecords(),
+  ]);
+
+  const pendingOrders = orders.filter((record) => record.status === "draft" || record.status === "pending_confirmation").length;
+  const thisWeekTours = orders.filter(
+    (record) => record.serviceDate && !["cancelled", "completed"].includes(record.status) && isDateWithinDays(record.serviceDate, 7),
+  ).length;
+  const pendingQuotes = quotations.filter((record) => record.status === "draft" || record.status === "sent").length;
+  const maintenanceVehicles = vehicles.filter((record) => record.status === "maintenance").length;
+
+  return [
+    {
+      title: "处理待确认订单",
+      description: "优先补齐航班、人数、接送时间和客户确认状态。",
+      href: "/orders?status=待确认",
+      meta: `${formatNumber(pendingOrders)} 单`,
+    },
+    {
+      title: "打开运营日历",
+      description: "按日期追溯订单、车辆、司机、导游、成本和运营留痕。",
+      href: "/calendar",
+      meta: `${formatNumber(thisWeekTours)} 个本周行程`,
+    },
+    {
+      title: "跟进待处理报价",
+      description: "查看草稿与已发送报价，推动报价转订单。",
+      href: "/pricing?status=待确认",
+      meta: `${formatNumber(pendingQuotes)} 份`,
+    },
+    {
+      title: "检查车辆状态",
+      description: "确认已派出、保养中和可调度车辆是否满足后续出团需求。",
+      href: maintenanceVehicles > 0 ? "/fleet?status=保养中" : "/fleet",
+      meta: `${formatNumber(maintenanceVehicles)} 台保养中`,
     },
   ];
 }
@@ -2849,6 +3000,14 @@ function isDateWithinDays(dateString: string | null | undefined, days: number) {
   end.setHours(23, 59, 59, 999);
 
   return target >= today && target <= end;
+}
+
+function calculateDashboardProgress(value: number, maxValue: number) {
+  if (maxValue <= 0 || value <= 0) {
+    return 12;
+  }
+
+  return Math.min(100, Math.max(18, Math.round((value / maxValue) * 88)));
 }
 
 function isInCurrentMonth(dateString: string | null | undefined) {

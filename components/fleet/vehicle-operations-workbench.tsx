@@ -19,6 +19,8 @@ import type { VehicleOperationsRecord } from "@/lib/loaders/admin";
 type VehicleOperationsWorkbenchProps = {
   records: VehicleOperationsRecord[];
   canWriteVehicles: boolean;
+  initialQuery?: string;
+  initialFilter?: string;
 };
 
 const filterItems = ["全部", "可调度", "保养中", "已派出", "停用", "自有车辆", "合作车队"];
@@ -29,12 +31,24 @@ const statusOptions = [
   { value: "inactive", label: "停用" },
 ];
 
-export function VehicleOperationsWorkbench({ records, canWriteVehicles }: VehicleOperationsWorkbenchProps) {
-  const [query, setQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("全部");
+function resolveInitialStatusFilter(value: string | undefined, allowedFilters: string[]) {
+  return value && allowedFilters.includes(value) ? value : "全部";
+}
+
+export function VehicleOperationsWorkbench({ records, canWriteVehicles, initialQuery, initialFilter }: VehicleOperationsWorkbenchProps) {
+  const [query, setQuery] = useState(initialQuery ?? "");
+  const [activeFilter, setActiveFilter] = useState(resolveInitialStatusFilter(initialFilter, filterItems));
   const [selectedId, setSelectedId] = useState<string | null>(records[0]?.id ?? null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(initialQuery ?? "");
+  }, [initialQuery]);
+
+  useEffect(() => {
+    setActiveFilter(resolveInitialStatusFilter(initialFilter, filterItems));
+  }, [initialFilter]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {

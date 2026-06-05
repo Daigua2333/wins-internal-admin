@@ -24,6 +24,7 @@ type OrdersPageProps = {
     repeatMode?: string;
     focus?: string;
     query?: string;
+    status?: string;
   }>;
 };
 
@@ -101,6 +102,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canWriteOrders={canWriteOrders}
         initialSelectedId={params.focus}
         initialQuery={params.query}
+        initialFilter={params.status}
         reminders={reminders}
       />
     </>

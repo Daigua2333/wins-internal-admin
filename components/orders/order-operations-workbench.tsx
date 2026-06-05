@@ -26,6 +26,7 @@ type OrderOperationsWorkbenchProps = {
   canWriteOrders: boolean;
   initialSelectedId?: string;
   initialQuery?: string;
+  initialFilter?: string;
   reminders: OperationsReminderSnapshot;
 };
 
@@ -38,6 +39,10 @@ const statusTransitionItems = [
   { value: "cancelled", label: "已取消" },
 ];
 
+function resolveInitialStatusFilter(value: string | undefined, allowedFilters: string[]) {
+  return value && allowedFilters.includes(value) ? value : "全部";
+}
+
 export function OrderOperationsWorkbench({
   records,
   customers,
@@ -47,10 +52,11 @@ export function OrderOperationsWorkbench({
   canWriteOrders,
   initialSelectedId,
   initialQuery,
+  initialFilter,
   reminders,
 }: OrderOperationsWorkbenchProps) {
   const [query, setQuery] = useState(initialQuery ?? "");
-  const [activeFilter, setActiveFilter] = useState("全部");
+  const [activeFilter, setActiveFilter] = useState(resolveInitialStatusFilter(initialFilter, statusFilterItems));
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     records.some((record) => record.id === initialSelectedId) ? initialSelectedId ?? null : records[0]?.id ?? null,
   );
@@ -66,6 +72,10 @@ export function OrderOperationsWorkbench({
   useEffect(() => {
     setQuery(initialQuery ?? "");
   }, [initialQuery]);
+
+  useEffect(() => {
+    setActiveFilter(resolveInitialStatusFilter(initialFilter, statusFilterItems));
+  }, [initialFilter]);
 
   const pendingApprovalRecords = useMemo(
     () =>

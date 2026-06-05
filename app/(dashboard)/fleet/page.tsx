@@ -11,6 +11,8 @@ type FleetPageProps = {
     message?: string;
     error?: string;
     detail?: string;
+    query?: string;
+    status?: string;
   }>;
 };
 
@@ -41,7 +43,12 @@ export default async function FleetPage({ searchParams }: FleetPageProps) {
 
       <SummaryGrid items={summaryItems} />
 
-      <VehicleOperationsWorkbench records={records} canWriteVehicles={canWriteVehicles} />
+      <VehicleOperationsWorkbench
+        records={records}
+        canWriteVehicles={canWriteVehicles}
+        initialQuery={params.query}
+        initialFilter={params.status}
+      />
     </>
   );
 }
