@@ -86,7 +86,7 @@ export function Header({
   }
 
   return (
-    <header className="glass-panel relative rounded-[2rem] px-5 py-4">
+    <header className="glass-panel relative isolate z-[80] rounded-[2rem] px-5 py-4">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_top,rgba(15,118,110,0.14),transparent_62%)]" />
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-start gap-3">
@@ -137,7 +137,7 @@ export function Header({
 
             {searchOpen ? (
               <div
-                className="absolute left-0 right-0 top-[calc(100%+0.6rem)] z-30 overflow-hidden rounded-3xl border border-slate-200 bg-white/96 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.16)] backdrop-blur"
+                className="absolute left-0 right-0 top-[calc(100%+0.6rem)] z-[95] overflow-hidden rounded-3xl border border-slate-200 bg-white p-2 shadow-[0_28px_70px_rgba(15,23,42,0.2)] backdrop-blur-xl"
                 onMouseLeave={() => {
                   if (!searchTerm.trim()) setSearchOpen(false);
                 }}
@@ -196,7 +196,7 @@ export function Header({
               </button>
 
               {remindersOpen ? (
-                <div className="absolute right-0 top-[calc(100%+0.7rem)] z-30 w-[min(90vw,360px)] rounded-3xl border border-slate-200 bg-white/96 p-3 shadow-[0_24px_60px_rgba(15,23,42,0.16)] backdrop-blur">
+                <div className="absolute right-0 top-[calc(100%+0.7rem)] z-[95] w-[min(90vw,360px)] rounded-3xl border border-slate-200 bg-white p-3 shadow-[0_28px_72px_rgba(15,23,42,0.22)] backdrop-blur-xl">
                   <div className="flex items-start justify-between gap-3 px-2 py-2">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-950">近期运营提醒</p>
