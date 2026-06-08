@@ -103,6 +103,10 @@ export const orderRows = [
     assignee: "高桥 真理",
     status: "已完成",
     amount: "¥180,000",
+    archivedAt: "2026-06-04T09:30:00Z",
+    archiveCode: "ARC-WIN-20260531-001",
+    archiveSummary: "成田接机与东京半日游已完成，客户人数、车辆、成本和回款均已核对。",
+    archiveKeywords: "成田 接机 东京半日 WINS East Asia Partner 已完成 回款",
     notes: "[schedule][start_time:13:10] 已完成接机与市区半日游，等待财务完成最终对账。",
   },
   {
@@ -113,6 +117,10 @@ export const orderRows = [
     assignee: "佐藤 美纪",
     status: "已完成",
     amount: "¥360,000",
+    archivedAt: "2026-06-05T11:20:00Z",
+    archiveCode: "ARC-WIN-20260603-001",
+    archiveSummary: "浅草文化体验与团队晚宴执行结束，客户反馈良好，可作为企业会奖复盘样例。",
+    archiveKeywords: "浅草 文化体验 团队晚宴 Asia Incentive Circle 企业会奖 已完成",
     notes: "[schedule][start_time:15:00] 已完成浅草文化体验与晚宴，客户反馈良好。",
   },
 ];

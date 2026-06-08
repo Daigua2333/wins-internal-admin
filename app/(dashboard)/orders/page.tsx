@@ -123,6 +123,22 @@ function getOrdersFeedback(params: {
     };
   }
 
+  if (params.message === "order_archived") {
+    return {
+      type: "success" as const,
+      message: "订单已归档。",
+      detail: "这张订单已从活跃工作台移入历史归档，可通过日期、客户、订单号、行程内容、摘要或关键词继续检索。",
+    };
+  }
+
+  if (params.message === "archive_restored") {
+    return {
+      type: "success" as const,
+      message: "订单已移出归档。",
+      detail: "这张订单已回到活跃订单工作台，现在可以继续编辑、调度或删除。",
+    };
+  }
+
   if (params.message === "dispatch_updated") {
     return {
       type: "success" as const,
@@ -229,6 +245,38 @@ function getOrdersFeedback(params: {
     return {
       type: "error" as const,
       message: "订单删除失败。",
+      detail,
+    };
+  }
+
+  if (params.error === "archive_not_closed") {
+    return {
+      type: "error" as const,
+      message: "只有已完成或已取消订单可以归档。",
+      detail: "请先在订单编辑界面把订单状态推进到已完成，或标记为已取消后再归档。",
+    };
+  }
+
+  if (params.error === "archive_readonly") {
+    return {
+      type: "error" as const,
+      message: "归档订单当前为只读状态。",
+      detail: "为了保留历史核对口径，请先把订单移出归档，再进行编辑、删除、调度或成本修改。",
+    };
+  }
+
+  if (params.error === "archive_failed") {
+    return {
+      type: "error" as const,
+      message: "订单归档失败。",
+      detail: detail ?? "请检查 orders 表是否已执行最新归档字段迁移，以及当前账号是否具备订单写入权限。",
+    };
+  }
+
+  if (params.error === "archive_restore_failed") {
+    return {
+      type: "error" as const,
+      message: "移出归档失败。",
       detail,
     };
   }

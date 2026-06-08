@@ -92,6 +92,10 @@ export type OrderOperationsRecord = {
   totalCostJpy: number;
   totalCostLabel: string;
   grossProfitLabel: string;
+  archivedAt: string | null;
+  archiveCode: string | null;
+  archiveSummary: string;
+  archiveKeywords: string;
   notes: string;
 };
 export type OrderCostEntry = {
@@ -505,9 +509,19 @@ export type SupplierPaymentRecord = {
 
 export async function getOrderWorkbenchRows(): Promise<UiRow[]> {
   const { enabled, orders } = getRepositories();
+  const mockRows = orderRows.map((row) => ({
+    orderNo: row.orderNo,
+    customer: row.customer,
+    itinerary: row.itinerary,
+    date: row.date,
+    assignee: row.assignee,
+    status: row.status,
+    amount: row.amount,
+    notes: row.notes,
+  }));
 
   if (!enabled) {
-    return orderRows;
+    return mockRows;
   }
 
   const supabase = await createClient();
@@ -528,7 +542,7 @@ export async function getOrderWorkbenchRows(): Promise<UiRow[]> {
     .limit(50);
 
   if (error || !data) {
-    return orderRows;
+    return mockRows;
   }
 
   return data.map((row: any) => ({
@@ -607,6 +621,10 @@ export async function getOrderOperationsRecords(): Promise<OrderOperationsRecord
         guide_id,
         revenue_jpy,
         total_cost_jpy,
+        archived_at,
+        archive_code,
+        archive_summary,
+        archive_keywords,
         notes,
         customer:customers(company_name),
         assignee:profiles!orders_assignee_profile_id_fkey(full_name),
@@ -616,13 +634,50 @@ export async function getOrderOperationsRecords(): Promise<OrderOperationsRecord
       `,
     )
     .order("service_date", { ascending: true })
-    .limit(100);
+    .limit(1000);
+
+  if (error && /archive_|archived_at/.test(error.message)) {
+    const fallback = await supabase
+      .from("orders")
+      .select(
+        `
+          id,
+          order_no,
+          customer_id,
+          title,
+          service_date,
+          status,
+          assignee_profile_id,
+          vehicle_id,
+          driver_id,
+          guide_id,
+          revenue_jpy,
+          total_cost_jpy,
+          notes,
+          customer:customers(company_name),
+          assignee:profiles!orders_assignee_profile_id_fkey(full_name),
+          vehicle:vehicles(label,plate_number),
+          driver:drivers(full_name),
+          guide:guides(full_name)
+        `,
+      )
+      .order("service_date", { ascending: true })
+      .limit(1000);
+
+    if (!fallback.error && fallback.data?.length) {
+      return fallback.data.map((row: any) => mapOrderOperationsRecord(row));
+    }
+  }
 
   if (error || !data?.length) {
     return buildMockOrderOperationsRecords();
   }
 
-  return data.map((row: any) => ({
+  return data.map((row: any) => mapOrderOperationsRecord(row));
+}
+
+function mapOrderOperationsRecord(row: any): OrderOperationsRecord {
+  return {
     id: row.id,
     orderNo: row.order_no,
     customerId: row.customer_id,
@@ -644,8 +699,12 @@ export async function getOrderOperationsRecords(): Promise<OrderOperationsRecord
     totalCostJpy: Number(row.total_cost_jpy ?? 0),
     totalCostLabel: formatCurrency(Number(row.total_cost_jpy ?? 0)),
     grossProfitLabel: formatCurrency(Number(row.revenue_jpy ?? 0) - Number(row.total_cost_jpy ?? 0)),
+    archivedAt: row.archived_at ?? null,
+    archiveCode: row.archive_code ?? null,
+    archiveSummary: row.archive_summary ?? "",
+    archiveKeywords: row.archive_keywords ?? "",
     notes: row.notes ?? "",
-  }));
+  };
 }
 
 export async function getDispatchResourceOptions(): Promise<DispatchResourceOptions> {
@@ -3113,6 +3172,10 @@ function buildMockOrderOperationsRecords(): OrderOperationsRecord[] {
       totalCostJpy,
       totalCostLabel: formatCurrency(totalCostJpy),
       grossProfitLabel: formatCurrency(revenueJpy - totalCostJpy),
+      archivedAt: row.archivedAt ?? null,
+      archiveCode: row.archiveCode ?? null,
+      archiveSummary: row.archiveSummary ?? "",
+      archiveKeywords: row.archiveKeywords ?? "",
       notes: row.notes ?? "当前为 2026-06 演示订单，可继续测试排车、派导游、成本、回款和日历功能。",
     };
   });

@@ -170,10 +170,19 @@ create table if not exists public.orders (
       else round(((revenue_jpy - total_cost_jpy) / revenue_jpy) * 100, 2)
     end
   ) stored,
+  archived_at timestamptz,
+  archive_code text,
+  archive_summary text,
+  archive_keywords text,
   notes text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.orders add column if not exists archived_at timestamptz;
+alter table public.orders add column if not exists archive_code text;
+alter table public.orders add column if not exists archive_summary text;
+alter table public.orders add column if not exists archive_keywords text;
 
 create table if not exists public.trip_costs (
   id uuid primary key default gen_random_uuid(),
@@ -218,6 +227,9 @@ create table if not exists public.supplier_payments (
 
 create index if not exists idx_orders_customer_id on public.orders(customer_id);
 create index if not exists idx_orders_service_date on public.orders(service_date);
+create unique index if not exists idx_orders_archive_code on public.orders(archive_code) where archive_code is not null;
+create index if not exists idx_orders_archived_at on public.orders(archived_at) where archived_at is not null;
+create index if not exists idx_orders_archive_service_date on public.orders(service_date) where archived_at is not null;
 create index if not exists idx_quotations_customer_id on public.quotations(customer_id);
 create index if not exists idx_trip_costs_order_id on public.trip_costs(order_id);
 create index if not exists idx_payment_receipts_order_id on public.payment_receipts(order_id);

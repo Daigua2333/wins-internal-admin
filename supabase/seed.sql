@@ -614,4 +614,20 @@ values
     '温泉旅馆订金待支付。'
   );
 
+update public.orders
+set
+  archived_at = '2026-06-04 09:30:00+09',
+  archive_code = 'ARC-WIN-20260531-001',
+  archive_summary = '成田接机与东京半日游已完成，客户人数、车辆、成本和回款均已核对。',
+  archive_keywords = '成田 接机 东京半日 WINS East Asia Partner 已完成 回款'
+where order_no = 'WIN-20260531-001';
+
+update public.orders
+set
+  archived_at = '2026-06-05 11:20:00+09',
+  archive_code = 'ARC-WIN-20260603-001',
+  archive_summary = '浅草文化体验与团队晚宴执行结束，客户反馈良好，可作为企业会奖复盘样例。',
+  archive_keywords = '浅草 文化体验 团队晚宴 Asia Incentive Circle 企业会奖 已完成'
+where order_no = 'WIN-20260603-001';
+
 commit;

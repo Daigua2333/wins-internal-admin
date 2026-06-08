@@ -104,6 +104,10 @@ export type Order = TimestampFields & {
   total_cost_jpy: number;
   gross_profit_jpy: number;
   gross_margin_rate: number;
+  archived_at: string | null;
+  archive_code: string | null;
+  archive_summary: string | null;
+  archive_keywords: string | null;
   notes: string | null;
 };
 

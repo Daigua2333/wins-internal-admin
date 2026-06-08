@@ -24,6 +24,9 @@
 - `profiles` 自动建档 trigger
 - `profiles` 自身插入/更新策略
 - 角色链路所需的基础支持
+- `orders` 归档字段：`archived_at`、`archive_code`、`archive_summary`、`archive_keywords`
+- 订单归档检索索引：归档编号、归档时间、归档订单服务日期
+- 财务回款与供应商付款表
 
 执行后将创建：
 
@@ -35,6 +38,8 @@
 - `quotations`
 - `orders`
 - `trip_costs`
+- `payment_receipts`
+- `supplier_payments`
 
 然后 `seed.sql` 会插入一批可用于演示的数据：
 
@@ -44,6 +49,8 @@
 - 导游
 - 报价单
 - 订单
+- 归档订单样例
+- 成本、回款和供应商付款样例
 
 ## 3. 配置环境变量
 

@@ -136,6 +136,7 @@ export async function updateOrderBasics(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const payload: Database["public"]["Tables"]["orders"]["Update"] = {
     customer_id: customerId,
     title,
@@ -178,6 +179,7 @@ export async function updateOrderStatus(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const payload: Database["public"]["Tables"]["orders"]["Update"] = {
     status,
   };
@@ -214,6 +216,7 @@ export async function deleteOrder(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const { error } = await supabase.from("orders").delete().eq("id", orderId);
 
   if (error) {
@@ -227,6 +230,120 @@ export async function deleteOrder(formData: FormData) {
   revalidatePath("/profit");
   revalidatePath("/finance");
   redirect(`${redirectTo}?message=order_deleted`);
+}
+
+export async function archiveOrder(formData: FormData) {
+  const redirectTo = resolveOrderRedirectPath(formData);
+  const canWriteOrders = await hasPermission("orders.write");
+
+  if (!canWriteOrders) {
+    redirect(`${redirectTo}?error=not_allowed`);
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect(`${redirectTo}?error=preview_mode`);
+  }
+
+  const orderId = String(formData.get("orderId") ?? "").trim();
+  const archiveSummary = String(formData.get("archiveSummary") ?? "").trim();
+  const archiveKeywords = String(formData.get("archiveKeywords") ?? "").trim();
+
+  if (!orderId) {
+    redirect(`${redirectTo}?error=missing_fields`);
+  }
+
+  const supabase = await createClient();
+  const { data: order, error: fetchError } = await supabase
+    .from("orders")
+    .select("order_no,title,service_date,status,notes,customer:customers(company_name)")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (fetchError || !order) {
+    const message = fetchError?.message ?? "订单不存在。";
+    console.error("[orders:archive-fetch]", message);
+    redirect(`${redirectTo}?error=archive_failed&detail=${encodeURIComponent(message)}`);
+  }
+
+  const orderRow = order as {
+    order_no: string;
+    title: string;
+    service_date: string | null;
+    status: OrderStatus;
+    notes: string | null;
+    customer: { company_name: string } | null;
+  };
+
+  if (!["completed", "cancelled"].includes(orderRow.status)) {
+    redirect(`${redirectTo}?error=archive_not_closed`);
+  }
+
+  const fallbackSummary = [
+    orderRow.customer?.company_name ?? "未关联客户",
+    orderRow.title,
+    orderRow.service_date ? `服务日期 ${orderRow.service_date}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const fallbackKeywords = [orderRow.order_no, orderRow.title, orderRow.customer?.company_name, orderRow.service_date, orderRow.notes]
+    .filter(Boolean)
+    .join(" ");
+  const payload: Database["public"]["Tables"]["orders"]["Update"] = {
+    archived_at: new Date().toISOString(),
+    archive_code: buildArchiveCode(orderRow.order_no),
+    archive_summary: archiveSummary || fallbackSummary,
+    archive_keywords: archiveKeywords || fallbackKeywords,
+  };
+
+  const { error } = await supabase.from("orders").update(payload as never).eq("id", orderId);
+
+  if (error) {
+    console.error("[orders:archive]", error.message);
+    redirect(`${redirectTo}?error=archive_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/dashboard");
+  redirect(`${redirectTo}?message=order_archived`);
+}
+
+export async function restoreArchivedOrder(formData: FormData) {
+  const redirectTo = resolveOrderRedirectPath(formData);
+  const canWriteOrders = await hasPermission("orders.write");
+
+  if (!canWriteOrders) {
+    redirect(`${redirectTo}?error=not_allowed`);
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect(`${redirectTo}?error=preview_mode`);
+  }
+
+  const orderId = String(formData.get("orderId") ?? "").trim();
+
+  if (!orderId) {
+    redirect(`${redirectTo}?error=missing_fields`);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("orders")
+    .update({
+      archived_at: null,
+      archive_code: null,
+      archive_summary: null,
+      archive_keywords: null,
+    } as never)
+    .eq("id", orderId);
+
+  if (error) {
+    console.error("[orders:restore-archive]", error.message);
+    redirect(`${redirectTo}?error=archive_restore_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/dashboard");
+  redirect(`${redirectTo}?message=archive_restored`);
 }
 
 export async function appendOrderOperationsLog(formData: FormData) {
@@ -254,6 +371,7 @@ export async function appendOrderOperationsLog(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const currentUser = await getCurrentUser();
   const { data: order, error: fetchError } = await supabase.from("orders").select("notes").eq("id", orderId).maybeSingle();
 
@@ -303,6 +421,7 @@ export async function updateOrderDispatch(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const operationsPolicy = await getOperationsPolicySettings();
   const dispatchConflict = await findDispatchConflictMessage(supabase, {
     orderId,
@@ -377,6 +496,7 @@ export async function addOrderCost(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const costPayload: Database["public"]["Tables"]["trip_costs"]["Insert"] = {
     order_id: orderId,
     category: category as Database["public"]["Tables"]["trip_costs"]["Insert"]["category"],
@@ -436,6 +556,7 @@ export async function updateOrderCost(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const payload: Database["public"]["Tables"]["trip_costs"]["Update"] = {
     category: category as Database["public"]["Tables"]["trip_costs"]["Update"]["category"],
     label,
@@ -484,6 +605,7 @@ export async function deleteOrderCost(formData: FormData) {
   }
 
   const supabase = await createClient();
+  await ensureOrderNotArchived(supabase, orderId, redirectTo);
   const { error: deleteError } = await supabase.from("trip_costs").delete().eq("id", costId);
 
   if (deleteError) {
@@ -519,6 +641,25 @@ async function syncOrderTotalCost(supabase: Awaited<ReturnType<typeof createClie
     .eq("id", orderId);
 
   return updateError ?? null;
+}
+
+async function ensureOrderNotArchived(supabase: Awaited<ReturnType<typeof createClient>>, orderId: string, redirectTo: string) {
+  const { data, error } = await supabase.from("orders").select("archived_at").eq("id", orderId).maybeSingle();
+
+  if (error) {
+    if (/archive_|archived_at/.test(error.message)) {
+      return;
+    }
+
+    console.error("[orders:archive-readonly-check]", error.message);
+    redirect(`${redirectTo}?error=update_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  const order = data as { archived_at: string | null } | null;
+
+  if (order?.archived_at) {
+    redirect(`${redirectTo}?error=archive_readonly`);
+  }
 }
 
 async function findDispatchConflictMessage(
@@ -674,4 +815,8 @@ function isValidClockTime(value: string) {
 function resolveOrderRedirectPath(formData: FormData) {
   const redirectTo = String(formData.get("redirectTo") ?? "/orders").trim();
   return redirectTo.startsWith("/") ? redirectTo : "/orders";
+}
+
+function buildArchiveCode(orderNo: string) {
+  return `ARC-${orderNo}`;
 }

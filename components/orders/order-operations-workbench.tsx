@@ -7,8 +7,10 @@ import Link from "next/link";
 
 import {
   addOrderCost,
+  archiveOrder,
   deleteOrder,
   deleteOrderCost,
+  restoreArchivedOrder,
   updateOrderBasics,
   updateOrderCost,
   updateOrderDispatch,
@@ -85,6 +87,10 @@ export function OrderOperationsWorkbench({
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [archiveQuery, setArchiveQuery] = useState("");
+  const [archiveStartDate, setArchiveStartDate] = useState("");
+  const [archiveEndDate, setArchiveEndDate] = useState("");
+  const [archiveVisibleCount, setArchiveVisibleCount] = useState(12);
 
   useEffect(() => {
     if (initialSelectedId && records.some((record) => record.id === initialSelectedId)) {
@@ -100,38 +106,71 @@ export function OrderOperationsWorkbench({
     setActiveFilter(resolveInitialStatusFilter(initialFilter, statusFilterItems));
   }, [initialFilter]);
 
-  const pendingApprovalRecords = useMemo(
+  const activeRecords = useMemo(() => records.filter((record) => !record.archivedAt), [records]);
+  const archivedRecords = useMemo(
     () =>
       records
-        .filter((record) => record.status === "draft" || record.status === "pending_confirmation")
-        .sort((left, right) => (left.serviceDate || "9999-12-31").localeCompare(right.serviceDate || "9999-12-31")),
+        .filter((record) => Boolean(record.archivedAt))
+        .sort((left, right) => (right.serviceDate || "").localeCompare(left.serviceDate || "")),
     [records],
   );
 
+  const pendingApprovalRecords = useMemo(
+    () =>
+      activeRecords
+        .filter((record) => record.status === "draft" || record.status === "pending_confirmation")
+        .sort((left, right) => (left.serviceDate || "9999-12-31").localeCompare(right.serviceDate || "9999-12-31")),
+    [activeRecords],
+  );
+
   const filteredRecords = useMemo(() => {
-    return records.filter((record) => {
+    return activeRecords.filter((record) => {
       const haystack = [record.orderNo, record.customerName, record.title, record.assigneeName, record.statusLabel].join(" ").toLowerCase();
       const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
       const matchesFilter = activeFilter === "全部" || record.statusLabel === activeFilter;
       return matchesQuery && matchesFilter;
     });
-  }, [activeFilter, query, records]);
+  }, [activeFilter, activeRecords, query]);
+
+  const filteredArchivedRecords = useMemo(() => {
+    const normalizedQuery = archiveQuery.trim().toLowerCase();
+
+    return archivedRecords.filter((record) => {
+      const haystack = [
+        record.archiveCode,
+        record.orderNo,
+        record.customerName,
+        record.title,
+        record.archiveSummary,
+        record.archiveKeywords,
+        record.notes,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
+      const matchesStartDate = !archiveStartDate || Boolean(record.serviceDate && record.serviceDate >= archiveStartDate);
+      const matchesEndDate = !archiveEndDate || Boolean(record.serviceDate && record.serviceDate <= archiveEndDate);
+
+      return matchesQuery && matchesStartDate && matchesEndDate;
+    });
+  }, [archiveEndDate, archiveQuery, archiveStartDate, archivedRecords]);
 
   useEffect(() => {
-    if (!filteredRecords.length) {
-      setSelectedId(null);
-      return;
-    }
-
     if (!selectedId || !records.some((record) => record.id === selectedId)) {
-      setSelectedId(filteredRecords[0].id);
+      setSelectedId(filteredRecords[0]?.id ?? archivedRecords[0]?.id ?? null);
     }
-  }, [filteredRecords, records, selectedId]);
+  }, [archivedRecords, filteredRecords, records, selectedId]);
+
+  useEffect(() => {
+    setArchiveVisibleCount(12);
+  }, [archiveEndDate, archiveQuery, archiveStartDate]);
 
   const selectedRecord = useMemo(
     () => records.find((record) => record.id === selectedId) ?? filteredRecords[0] ?? null,
     [filteredRecords, records, selectedId],
   );
+  const canEditSelectedRecord = Boolean(canWriteOrders && selectedRecord && !selectedRecord.archivedAt);
   const selectedCostEntries = useMemo(
     () => (selectedRecord ? costEntries.filter((entry) => entry.orderId === selectedRecord.id) : []),
     [costEntries, selectedRecord],
@@ -213,7 +252,7 @@ export function OrderOperationsWorkbench({
           </div>
 
           <div className="flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <span>当前结果 {filteredRecords.length} 条</span>
+            <span>当前结果 {filteredRecords.length} 条，归档订单 {archivedRecords.length} 条</span>
             <span>{canWriteOrders ? "每条订单可直接进入编辑或删除" : "当前角色仅可查看订单"}</span>
           </div>
 
@@ -278,6 +317,105 @@ export function OrderOperationsWorkbench({
           ) : (
             <EmptyStateCard title="当前筛选下没有订单" description="换一个状态筛选或搜索词，或者直接创建一张新订单。" />
           )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="订单归档与历史检索"
+        description="已完成或已取消的订单可以归档保存。后续核对时，可按服务日期、订单号、客户、行程内容、归档摘要或关键词快速定位。"
+        action={<Badge label={`${archivedRecords.length} 条归档`} tone={archivedRecords.length ? "info" : "neutral"} />}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_180px]">
+            <label className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
+              <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                value={archiveQuery}
+                onChange={(event) => setArchiveQuery(event.target.value)}
+                placeholder="搜索订单号、客户、行程、归档摘要或关键词"
+                className="w-full min-w-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </label>
+            <input
+              type="date"
+              value={archiveStartDate}
+              onChange={(event) => setArchiveStartDate(event.target.value)}
+              aria-label="归档检索开始日期"
+              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:bg-white"
+            />
+            <input
+              type="date"
+              value={archiveEndDate}
+              onChange={(event) => setArchiveEndDate(event.target.value)}
+              aria-label="归档检索结束日期"
+              className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-cyan-400 focus:bg-white"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <span>当前命中 {filteredArchivedRecords.length} 条</span>
+            <span>归档记录默认只读，如需修改可先移出归档</span>
+          </div>
+
+          {filteredArchivedRecords.length ? (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {filteredArchivedRecords.slice(0, archiveVisibleCount).map((record) => (
+                <article key={record.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge label={record.archiveCode ?? "已归档"} tone="info" />
+                        <Badge label={record.statusLabel} tone={resolveOrderTone(record.status)} />
+                        <span className="text-xs text-slate-500">{formatArchiveDate(record.archivedAt)}</span>
+                      </div>
+                      <p className="mt-2 break-words text-base font-semibold text-slate-950">{record.title}</p>
+                      <p className="mt-1 break-words text-sm text-slate-500">
+                        {record.orderNo} · {record.customerName} · {formatOrderDate(record.serviceDate)}
+                      </p>
+                      <p className="mt-3 line-clamp-2 break-words text-sm leading-6 text-slate-600">
+                        {record.archiveSummary || record.notes || "该归档订单暂无摘要。"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openOrderEditor(record.id)}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
+                      >
+                        查看归档
+                      </button>
+                      {canWriteOrders ? (
+                        <form action={restoreArchivedOrder}>
+                          <input type="hidden" name="orderId" value={record.id} />
+                          <button className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-medium text-cyan-800 transition hover:bg-cyan-100">
+                            移出归档
+                          </button>
+                        </form>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyStateCard
+              title={archivedRecords.length ? "没有匹配的归档订单" : "还没有归档订单"}
+              description={
+                archivedRecords.length
+                  ? "调整日期范围或关键词，再试着搜索订单号、客户名、行程标题或归档摘要。"
+                  : "完成或取消订单后，可以在编辑界面中归档，之后会出现在这里供历史核对。"
+              }
+            />
+          )}
+          {filteredArchivedRecords.length > archiveVisibleCount ? (
+            <button
+              type="button"
+              onClick={() => setArchiveVisibleCount((current) => current + 12)}
+              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
+            >
+              加载更多归档订单
+            </button>
+          ) : null}
         </div>
       </SectionCard>
 
@@ -399,8 +537,12 @@ export function OrderOperationsWorkbench({
       <SlideOver
         open={editorOpen && Boolean(selectedRecord)}
         onClose={() => setEditorOpen(false)}
-        title={selectedRecord ? `编辑订单 ${selectedRecord.orderNo}` : "编辑订单"}
-        description="订单详情、状态流转、基础资料、排车和成本维护都放在这里，主工作台只保留列表与核心操作。"
+        title={selectedRecord ? `${selectedRecord.archivedAt ? "查看归档" : "编辑订单"} ${selectedRecord.orderNo}` : "编辑订单"}
+        description={
+          selectedRecord?.archivedAt
+            ? "归档订单默认只读，保留历史核对信息。如需修改，请先移出归档。"
+            : "订单详情、状态流转、基础资料、排车和成本维护都放在这里，主工作台只保留列表与核心操作。"
+        }
       >
         {selectedRecord ? (
           <div className="space-y-4">
@@ -409,6 +551,7 @@ export function OrderOperationsWorkbench({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge label={selectedRecord.statusLabel} tone={resolveOrderTone(selectedRecord.status)} />
+                    {selectedRecord.archivedAt ? <Badge label={selectedRecord.archiveCode ?? "已归档"} tone="info" /> : null}
                     <span className="text-xs text-slate-500">{selectedRecord.customerName}</span>
                   </div>
                   <h3 className="mt-3 break-words text-xl font-semibold tracking-tight text-slate-950">{selectedRecord.title}</h3>
@@ -423,13 +566,97 @@ export function OrderOperationsWorkbench({
                   description={`订单 ${selectedRecord.orderNo} 删除后将从订单、日历、利润和财务视图中移除。`}
                   confirmLabel="确认删除订单"
                   tone="danger"
-                  disabled={!canWriteOrders}
+                  disabled={!canEditSelectedRecord}
                   className="inline-flex h-10 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   删除订单
                 </ConfirmActionButton>
               </div>
+            </div>
+
+            <div
+              className={`rounded-2xl border p-4 ${
+                selectedRecord.archivedAt ? "border-cyan-200 bg-cyan-50/70" : "border-slate-200 bg-white"
+              }`}
+            >
+              {selectedRecord.archivedAt ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-cyan-950">历史归档信息</p>
+                      <p className="mt-1 text-sm leading-6 text-cyan-900/75">
+                        归档于 {formatArchiveDate(selectedRecord.archivedAt)}，归档编号 {selectedRecord.archiveCode ?? "未生成"}。
+                      </p>
+                    </div>
+                    {canWriteOrders ? (
+                      <form action={restoreArchivedOrder}>
+                        <input type="hidden" name="orderId" value={selectedRecord.id} />
+                        <PendingSubmitButton
+                          pendingLabel="正在移出归档..."
+                          className="inline-flex h-10 items-center justify-center rounded-2xl bg-cyan-950 px-4 text-sm font-medium text-white transition hover:bg-cyan-800"
+                        >
+                          移出归档并继续编辑
+                        </PendingSubmitButton>
+                      </form>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl border border-cyan-200 bg-white/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.14em] text-cyan-700">归档摘要</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">{selectedRecord.archiveSummary || "暂无归档摘要。"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-cyan-200 bg-white/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.14em] text-cyan-700">检索关键词</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">{selectedRecord.archiveKeywords || "暂无检索关键词。"}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : canArchiveOrder(selectedRecord) ? (
+                <form action={archiveOrder} className="space-y-4">
+                  <input type="hidden" name="orderId" value={selectedRecord.id} />
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">结案归档</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      归档后会从当前订单工作台移入历史检索区，保留日期、内容、成本和执行记录供未来核对。
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">归档摘要</label>
+                      <textarea
+                        name="archiveSummary"
+                        rows={3}
+                        placeholder="例如：行程已完成，客户人数、车辆、成本与回款均已核对。"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">检索关键词</label>
+                      <textarea
+                        name="archiveKeywords"
+                        rows={3}
+                        placeholder="例如：富士山 一日游 企业团 投诉 已结算"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <PendingSubmitButton
+                      disabled={!canWriteOrders}
+                      pendingLabel="正在归档订单..."
+                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      归档订单
+                    </PendingSubmitButton>
+                  </div>
+                </form>
+              ) : (
+                <div>
+                  <p className="text-sm font-medium text-slate-900">结案归档</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">订单标记为已完成或已取消后，即可归档到历史检索区。</p>
+                </div>
+              )}
             </div>
 
             <StatStrip
@@ -452,14 +679,14 @@ export function OrderOperationsWorkbench({
                     <input type="hidden" name="orderId" value={selectedRecord.id} />
                     <input type="hidden" name="status" value={item.value} />
                     <button
-                      disabled={!canWriteOrders || selectedRecord.status === item.value}
+                      disabled={!canEditSelectedRecord || selectedRecord.status === item.value}
                       className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                     >
                       {item.label}
                     </button>
                   </form>
                 ))}
-                {canWriteOrders ? (
+                {canEditSelectedRecord ? (
                   <>
                     <form id={`cancel-order-${selectedRecord.id}`} action={updateOrderStatus}>
                       <input type="hidden" name="orderId" value={selectedRecord.id} />
@@ -489,7 +716,7 @@ export function OrderOperationsWorkbench({
                     <select
                       name="customerId"
                       defaultValue={selectedRecord.customerId}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {customers.map((customer) => (
@@ -505,7 +732,7 @@ export function OrderOperationsWorkbench({
                       type="text"
                       name="title"
                       defaultValue={selectedRecord.title}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -516,7 +743,7 @@ export function OrderOperationsWorkbench({
                         type="date"
                         name="serviceDate"
                         defaultValue={selectedRecord.serviceDate}
-                        disabled={!canWriteOrders}
+                        disabled={!canEditSelectedRecord}
                         className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                       />
                     </div>
@@ -525,7 +752,7 @@ export function OrderOperationsWorkbench({
                       <select
                         name="assigneeId"
                         defaultValue={selectedRecord.assigneeId ?? ""}
-                        disabled={!canWriteOrders}
+                        disabled={!canEditSelectedRecord}
                         className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <option value="">待分配</option>
@@ -550,7 +777,7 @@ export function OrderOperationsWorkbench({
                       step="1000"
                       name="revenueJpy"
                       defaultValue={selectedRecord.revenueJpy}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -560,7 +787,7 @@ export function OrderOperationsWorkbench({
                       name="notes"
                       rows={4}
                       defaultValue={selectedRecord.notes}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -569,10 +796,14 @@ export function OrderOperationsWorkbench({
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-slate-500">
-                  {canWriteOrders ? "保存后将直接更新订单主表。" : "当前账号只能查看，不可修改订单。"}
+                  {selectedRecord.archivedAt
+                    ? "归档订单为只读状态，如需修改请先移出归档。"
+                    : canWriteOrders
+                      ? "保存后将直接更新订单主表。"
+                      : "当前账号只能查看，不可修改订单。"}
                 </p>
                 <PendingSubmitButton
-                  disabled={!canWriteOrders}
+                  disabled={!canEditSelectedRecord}
                   pendingLabel="正在保存订单..."
                   className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
@@ -590,7 +821,7 @@ export function OrderOperationsWorkbench({
                     <select
                       name="vehicleId"
                       defaultValue={selectedRecord.vehicleId ?? ""}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <option value="">待分配</option>
@@ -606,7 +837,7 @@ export function OrderOperationsWorkbench({
                     <select
                       name="driverId"
                       defaultValue={selectedRecord.driverId ?? ""}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <option value="">待分配</option>
@@ -622,7 +853,7 @@ export function OrderOperationsWorkbench({
                     <select
                       name="guideId"
                       defaultValue={selectedRecord.guideId ?? ""}
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <option value="">待分配</option>
@@ -648,9 +879,15 @@ export function OrderOperationsWorkbench({
               ) : null}
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-slate-500">{canWriteOrders ? "保存后会把资源分配写回订单。" : "当前账号只有查看权限。"}</p>
+                <p className="text-sm text-slate-500">
+                  {selectedRecord.archivedAt
+                    ? "归档订单的调度信息保持只读。"
+                    : canWriteOrders
+                      ? "保存后会把资源分配写回订单。"
+                      : "当前账号只有查看权限。"}
+                </p>
                 <PendingSubmitButton
-                  disabled={!canWriteOrders}
+                  disabled={!canEditSelectedRecord}
                   pendingLabel="正在保存调度..."
                   className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
@@ -689,7 +926,7 @@ export function OrderOperationsWorkbench({
                     <label className="mb-2 block text-sm font-medium text-slate-700">成本类别</label>
                     <select
                       name="category"
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       defaultValue="vehicle"
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -710,7 +947,7 @@ export function OrderOperationsWorkbench({
                       step="1000"
                       name="amountJpy"
                       placeholder="50000"
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -720,7 +957,7 @@ export function OrderOperationsWorkbench({
                       type="text"
                       name="label"
                       placeholder="例如：成田接机车辆费"
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -730,7 +967,7 @@ export function OrderOperationsWorkbench({
                       type="text"
                       name="supplierName"
                       placeholder="例如：Tokyo Partner Bus"
-                      disabled={!canWriteOrders}
+                      disabled={!canEditSelectedRecord}
                       className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
@@ -740,7 +977,7 @@ export function OrderOperationsWorkbench({
                   <textarea
                     name="costNotes"
                     rows={3}
-                    disabled={!canWriteOrders}
+                    disabled={!canEditSelectedRecord}
                     placeholder="记录结算方式、数量、特殊费用说明"
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                   />
@@ -748,9 +985,15 @@ export function OrderOperationsWorkbench({
               </FormSection>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-slate-500">{canWriteOrders ? "新增后会同步刷新订单总成本与利润。" : "当前账号只有查看权限。"}</p>
+                <p className="text-sm text-slate-500">
+                  {selectedRecord.archivedAt
+                    ? "归档订单的成本明细保持只读。"
+                    : canWriteOrders
+                      ? "新增后会同步刷新订单总成本与利润。"
+                      : "当前账号只有查看权限。"}
+                </p>
                 <PendingSubmitButton
-                  disabled={!canWriteOrders}
+                  disabled={!canEditSelectedRecord}
                   pendingLabel="正在录入成本..."
                   className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
@@ -786,7 +1029,7 @@ export function OrderOperationsWorkbench({
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-slate-900">{entry.amountLabel}</p>
-                            {canWriteOrders ? (
+                            {canEditSelectedRecord ? (
                               <>
                                 <button
                                   type="button"
@@ -813,7 +1056,7 @@ export function OrderOperationsWorkbench({
                           </div>
                         </div>
 
-                        {isEditing ? (
+                        {isEditing && canEditSelectedRecord ? (
                           <form action={updateOrderCost} className="mt-4 space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
                             <input type="hidden" name="costId" value={entry.id} />
                             <input type="hidden" name="orderId" value={selectedRecord.id} />
@@ -972,6 +1215,10 @@ function buildOrderTimeline(record: OrderOperationsRecord, costEntries: OrderCos
   ];
 }
 
+function canArchiveOrder(record: OrderOperationsRecord) {
+  return record.status === "completed" || record.status === "cancelled";
+}
+
 function formatOrderDate(value: string) {
   if (!value) return "未安排";
 
@@ -980,4 +1227,16 @@ function formatOrderDate(value: string) {
     day: "2-digit",
     weekday: "short",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatArchiveDate(value: string | null) {
+  if (!value) return "未记录";
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
