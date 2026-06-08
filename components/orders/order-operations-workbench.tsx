@@ -1,21 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ClipboardCheck, Search } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 
-import { addOrderCost, deleteOrderCost, updateOrderBasics, updateOrderCost, updateOrderDispatch, updateOrderStatus } from "@/app/(dashboard)/orders/actions";
-import type { DispatchResourceOptions, OperationsReminderSnapshot, OrderCostEntry, OrderCreateOption, OrderOperationsRecord } from "@/lib/loaders/admin";
+import {
+  addOrderCost,
+  deleteOrder,
+  deleteOrderCost,
+  updateOrderBasics,
+  updateOrderCost,
+  updateOrderDispatch,
+  updateOrderStatus,
+} from "@/app/(dashboard)/orders/actions";
+import { OrderCreatePanel } from "@/components/orders/order-create-panel";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmActionButton } from "@/components/ui/confirm-action-button";
-import { DataTable } from "@/components/ui/data-table";
+import { Dialog } from "@/components/ui/dialog";
 import { EmptyStateCard } from "@/components/ui/empty-state-card";
 import { FormSection } from "@/components/ui/form-section";
 import { PendingSubmitButton } from "@/components/ui/pending-submit-button";
 import { SectionCard } from "@/components/ui/section-card";
 import { SlideOver } from "@/components/ui/slide-over";
 import { StatStrip } from "@/components/ui/stat-strip";
+import type { DispatchResourceOptions, OperationsReminderSnapshot, OrderCostEntry, OrderCreateOption, OrderOperationsRecord } from "@/lib/loaders/admin";
+
+type WorkbenchFeedback = {
+  type: "success" | "error";
+  message: string;
+  detail?: string;
+} | null;
 
 type OrderOperationsWorkbenchProps = {
   records: OrderOperationsRecord[];
@@ -28,15 +43,18 @@ type OrderOperationsWorkbenchProps = {
   initialQuery?: string;
   initialFilter?: string;
   reminders: OperationsReminderSnapshot;
+  feedback?: WorkbenchFeedback;
+  defaultStartTime?: string;
+  reminderLeadDays?: number;
+  targetGrossMarginRate?: number;
 };
 
-const statusFilterItems = ["全部", "待确认", "已排车", "进行中", "已完成"];
+const statusFilterItems = ["全部", "草稿", "待确认", "已排车", "进行中", "已完成", "已取消"];
 const statusTransitionItems = [
   { value: "pending_confirmation", label: "待确认" },
   { value: "scheduled", label: "已排车" },
   { value: "in_progress", label: "进行中" },
   { value: "completed", label: "已完成" },
-  { value: "cancelled", label: "已取消" },
 ];
 
 function resolveInitialStatusFilter(value: string | undefined, allowedFilters: string[]) {
@@ -54,6 +72,10 @@ export function OrderOperationsWorkbench({
   initialQuery,
   initialFilter,
   reminders,
+  feedback = null,
+  defaultStartTime,
+  reminderLeadDays,
+  targetGrossMarginRate,
 }: OrderOperationsWorkbenchProps) {
   const [query, setQuery] = useState(initialQuery ?? "");
   const [activeFilter, setActiveFilter] = useState(resolveInitialStatusFilter(initialFilter, statusFilterItems));
@@ -61,7 +83,8 @@ export function OrderOperationsWorkbench({
     records.some((record) => record.id === initialSelectedId) ? initialSelectedId ?? null : records[0]?.id ?? null,
   );
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
-  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   useEffect(() => {
     if (initialSelectedId && records.some((record) => record.id === initialSelectedId)) {
@@ -85,8 +108,6 @@ export function OrderOperationsWorkbench({
     [records],
   );
 
-  const scheduleBuckets = useMemo(() => buildScheduleBuckets(records), [records]);
-
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {
       const haystack = [record.orderNo, record.customerName, record.title, record.assigneeName, record.statusLabel].join(" ").toLowerCase();
@@ -102,23 +123,21 @@ export function OrderOperationsWorkbench({
       return;
     }
 
-    if (!selectedId || !filteredRecords.some((record) => record.id === selectedId)) {
+    if (!selectedId || !records.some((record) => record.id === selectedId)) {
       setSelectedId(filteredRecords[0].id);
     }
-  }, [filteredRecords, selectedId]);
+  }, [filteredRecords, records, selectedId]);
 
   const selectedRecord = useMemo(
-    () => filteredRecords.find((record) => record.id === selectedId) ?? filteredRecords[0] ?? null,
-    [filteredRecords, selectedId],
+    () => records.find((record) => record.id === selectedId) ?? filteredRecords[0] ?? null,
+    [filteredRecords, records, selectedId],
   );
-  const selectedRowIndex = selectedRecord ? filteredRecords.findIndex((record) => record.id === selectedRecord.id) : undefined;
   const selectedCostEntries = useMemo(
     () => (selectedRecord ? costEntries.filter((entry) => entry.orderId === selectedRecord.id) : []),
     [costEntries, selectedRecord],
   );
   const conflicts = selectedRecord ? detectResourceConflicts(selectedRecord, records) : [];
   const timelineItems = selectedRecord ? buildOrderTimeline(selectedRecord, selectedCostEntries) : [];
-
   useEffect(() => {
     if (!selectedCostEntries.some((entry) => entry.id === editingCostId)) {
       setEditingCostId(null);
@@ -127,26 +146,145 @@ export function OrderOperationsWorkbench({
 
   useEffect(() => {
     if (!selectedRecord) {
-      setDetailDrawerOpen(false);
+      setEditorOpen(false);
     }
   }, [selectedRecord]);
 
-  const tableRows = filteredRecords.map((record) => ({
-    orderNo: record.orderNo,
-    customer: record.customerName,
-    itinerary: record.title,
-    date: record.serviceDate || "未安排",
-    assignee: record.assigneeName,
-    status: record.statusLabel,
-    amount: record.revenueLabel,
-  }));
+  function openOrderEditor(orderId: string) {
+    setSelectedId(orderId);
+    setEditorOpen(true);
+  }
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      <SectionCard
+        title="订单工作台"
+        description="优先处理创建、编辑和删除订单。订单详情、调度与成本维护已收进二级编辑界面，主页面保持清爽。"
+        action={
+          <button
+            type="button"
+            onClick={() => setCreateOrderOpen(true)}
+            disabled={!canWriteOrders}
+            className="inline-flex h-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0f172a,#115e59)] px-4 text-sm font-medium text-white shadow-lg shadow-cyan-950/10 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-950/15 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            创建订单
+          </button>
+        }
+      >
+        <div className="space-y-4">
+          {feedback ? (
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm ${
+                feedback.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-rose-200 bg-rose-50 text-rose-900"
+              }`}
+            >
+              <p className="font-medium">{feedback.message}</p>
+              {feedback.detail ? <p className="mt-1 leading-6 opacity-80">{feedback.detail}</p> : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <label className="flex min-h-12 flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
+              <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索订单号、客户、行程、负责人"
+                className="w-full min-w-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {statusFilterItems.map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setActiveFilter(filter)}
+                  className={`rounded-full px-4 py-2 text-sm transition ${
+                    activeFilter === filter
+                      ? "bg-slate-950 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:border-cyan-300 hover:text-cyan-700"
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <span>当前结果 {filteredRecords.length} 条</span>
+            <span>{canWriteOrders ? "每条订单可直接进入编辑或删除" : "当前角色仅可查看订单"}</span>
+          </div>
+
+          {filteredRecords.length ? (
+            <div className="space-y-3">
+              {filteredRecords.map((record) => (
+                <article
+                  key={record.id}
+                  className={`rounded-[1.35rem] border bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:border-cyan-200 hover:shadow-[0_16px_32px_rgba(15,23,42,0.07)] ${
+                    selectedRecord?.id === record.id ? "border-cyan-300 ring-2 ring-cyan-100" : "border-slate-200"
+                  }`}
+                >
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(160px,0.45fr)_minmax(150px,0.4fr)_minmax(220px,0.55fr)] xl:items-center">
+                    <button type="button" onClick={() => openOrderEditor(record.id)} className="min-w-0 text-left">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="break-words text-sm font-semibold text-slate-950">{record.orderNo}</p>
+                        <Badge label={record.statusLabel} tone={resolveOrderTone(record.status)} />
+                      </div>
+                      <p className="mt-2 break-words text-base font-medium text-slate-900">{record.title}</p>
+                      <p className="mt-1 break-words text-sm text-slate-500">{record.customerName}</p>
+                    </button>
+
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.14em] text-slate-400">服务日期</p>
+                      <p className="mt-1 break-words text-sm font-medium text-slate-800">{formatOrderDate(record.serviceDate)}</p>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.14em] text-slate-400">金额</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-950">{record.revenueLabel}</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => openOrderEditor(record.id)}
+                        className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        编辑
+                      </button>
+                      <form id={`delete-order-${record.id}`} action={deleteOrder} className="hidden">
+                        <input type="hidden" name="orderId" value={record.id} />
+                      </form>
+                      <ConfirmActionButton
+                        formId={`delete-order-${record.id}`}
+                        title="确认删除这张订单？"
+                        description={`订单 ${record.orderNo} 删除后将从订单工作台、日历、利润和财务视图中移除。`}
+                        confirmLabel="确认删除订单"
+                        tone="danger"
+                        disabled={!canWriteOrders}
+                        className="inline-flex h-10 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        删除
+                      </ConfirmActionButton>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyStateCard title="当前筛选下没有订单" description="换一个状态筛选或搜索词，或者直接创建一张新订单。" />
+          )}
+        </div>
+      </SectionCard>
+
+      <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
         <SectionCard
           title="近期运营提醒"
-          description="把近期待出团、报价到期和车辆点检到期集中显示，帮助运营在订单页也能快速发现待处理事项。"
+          description="保留近期待出团、报价到期和车辆点检提醒，辅助订单处理但不压过主工作台。"
           action={<Badge label={`${reminders.items.length} 条提醒`} tone={reminders.items.length ? "warning" : "success"} />}
         >
           <div className="grid gap-3 md:grid-cols-3">
@@ -169,12 +307,12 @@ export function OrderOperationsWorkbench({
                   href={item.href as Route}
                   className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:bg-cyan-50"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge label={item.categoryLabel} tone={item.tone} />
-                      <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                      <p className="break-words text-sm font-medium text-slate-900">{item.title}</p>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
+                    <p className="mt-1 break-words text-sm text-slate-600">{item.detail}</p>
                   </div>
                   <span className="shrink-0 text-xs text-slate-500">{item.dateLabel}</span>
                 </Link>
@@ -189,7 +327,7 @@ export function OrderOperationsWorkbench({
 
         <SectionCard
           title="待审批队列"
-          description="把仍处于草稿和待确认的订单集中到一起，方便销售或运营快速推进到可调度状态。"
+          description="只保留草稿和待确认订单，方便快速进入编辑或批准进入排车状态。"
           action={<Badge label={`${pendingApprovalRecords.length} 条待处理`} tone={pendingApprovalRecords.length ? "warning" : "success"} />}
         >
           <div className="space-y-3">
@@ -197,41 +335,32 @@ export function OrderOperationsWorkbench({
               pendingApprovalRecords.slice(0, 6).map((record) => (
                 <div key={record.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-900">{record.orderNo}</p>
+                        <p className="break-words text-sm font-semibold text-slate-900">{record.orderNo}</p>
                         <Badge label={record.statusLabel} tone={resolveOrderTone(record.status)} />
                       </div>
-                      <p className="mt-1 text-sm text-slate-700">{record.title}</p>
-                      <p className="mt-2 text-sm text-slate-500">
+                      <p className="mt-1 break-words text-sm text-slate-700">{record.title}</p>
+                      <p className="mt-2 break-words text-sm text-slate-500">
                         {record.customerName} · {record.serviceDate || "未排日期"} · {record.assigneeName}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setSelectedId(record.id)}
+                        onClick={() => openOrderEditor(record.id)}
                         className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
                       >
-                        查看详情
+                        编辑
                       </button>
                       {canWriteOrders ? (
-                        <>
-                          <form action={updateOrderStatus}>
-                            <input type="hidden" name="orderId" value={record.id} />
-                            <input type="hidden" name="status" value="scheduled" />
-                            <button className="rounded-full bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-cyan-800">
-                              批准并排车
-                            </button>
-                          </form>
-                          <form action={updateOrderStatus}>
-                            <input type="hidden" name="orderId" value={record.id} />
-                            <input type="hidden" name="status" value="draft" />
-                            <button className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 transition hover:bg-amber-100">
-                              退回草稿
-                            </button>
-                          </form>
-                        </>
+                        <form action={updateOrderStatus}>
+                          <input type="hidden" name="orderId" value={record.id} />
+                          <input type="hidden" name="status" value="scheduled" />
+                          <button className="rounded-full bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-cyan-800">
+                            批准并排车
+                          </button>
+                        </form>
                       ) : null}
                     </div>
                   </div>
@@ -244,187 +373,73 @@ export function OrderOperationsWorkbench({
             )}
           </div>
         </SectionCard>
+      </section>
 
-        <SectionCard
-          title="七日排班视图"
-          description="按服务日期查看未来七天的订单分布，方便运营在一个版面里快速扫到待排车和已排车任务。"
-          action={<Badge label={`${scheduleBuckets.totalScheduled} 条已排日期`} tone="info" />}
-        >
-          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-            {scheduleBuckets.days.map((bucket) => (
-              <div key={bucket.date} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{bucket.weekday}</p>
-                    <p className="mt-1 text-base font-semibold text-slate-900">{bucket.label}</p>
-                  </div>
-                  <Badge label={`${bucket.records.length} 单`} tone={bucket.records.length ? "info" : "neutral"} />
-                </div>
-                <div className="mt-3 space-y-2">
-                  {bucket.records.length ? (
-                    bucket.records.map((record) => (
-                      <button
-                        key={record.id}
-                        type="button"
-                        onClick={() => setSelectedId(record.id)}
-                        className="w-full rounded-2xl border border-white bg-white px-3 py-3 text-left transition hover:border-cyan-200 hover:bg-cyan-50"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-slate-900">{record.orderNo}</p>
-                          <Badge label={record.statusLabel} tone={resolveOrderTone(record.status)} />
-                        </div>
-                        <p className="mt-1 text-sm text-slate-700">{record.title}</p>
-                        <p className="mt-2 text-xs text-slate-500">
-                          {record.vehicleName} / {record.driverName} / {record.guideName}
-                        </p>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-3 py-4 text-sm text-slate-400">暂无排班</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+      <Dialog
+        open={createOrderOpen}
+        onClose={() => setCreateOrderOpen(false)}
+        title="创建订单"
+        description="在二级界面中完成一次性建单或重复一日游建单，提交后回到订单工作台继续编辑和调度。"
+        eyebrow="Create Order"
+        maxWidthClassName="max-w-6xl"
+      >
+        <OrderCreatePanel
+          customers={customers}
+          assignees={assignees}
+          canWriteOrders={canWriteOrders}
+          feedback={feedback ?? undefined}
+          redirectTo="/orders"
+          defaultStartTime={defaultStartTime}
+          reminderLeadDays={reminderLeadDays}
+          targetGrossMarginRate={targetGrossMarginRate}
+          variant="plain"
+        />
+      </Dialog>
 
-          {scheduleBuckets.unscheduled.length ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm font-medium text-amber-900">未排服务日期</p>
-              <p className="mt-1 text-sm text-amber-800">这些订单还没有填服务日期，不会出现在日历里，建议优先补齐。</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {scheduleBuckets.unscheduled.slice(0, 6).map((record) => (
-                  <button
-                    key={record.id}
-                    type="button"
-                    onClick={() => setSelectedId(record.id)}
-                    className="rounded-full border border-amber-200 bg-white px-3 py-2 text-xs font-medium text-amber-800 transition hover:bg-amber-100"
-                  >
-                    {record.orderNo}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </SectionCard>
-      </div>
-
-      <section className="grid gap-4 2xl:grid-cols-[1.15fr_0.85fr]">
-        <SectionCard
-          title="订单工作台"
-          description="点击左侧订单后，右侧可直接更新状态与基础信息。这样运营不用跳转页面就能完成日常维护。"
-          action={
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                canWriteOrders ? "bg-emerald-50 text-emerald-700" : "bg-amber-100 text-amber-800"
-              }`}
-            >
-              {canWriteOrders ? "可编辑订单" : "只读模式"}
-            </span>
-          }
-        >
-        <div className="space-y-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <label className="flex min-h-12 flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索订单号、客户、行程、负责人"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-              />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {statusFilterItems.map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  onClick={() => setActiveFilter(filter)}
-                  className={`rounded-full px-4 py-2 text-sm transition ${
-                    activeFilter === filter
-                      ? "bg-slate-950 text-white"
-                      : "border border-slate-200 bg-white text-slate-600 hover:border-cyan-300 hover:text-cyan-700"
-                  }`}
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-sm text-slate-500">
-            <span>当前结果 {filteredRecords.length} 条</span>
-            <span>{canWriteOrders ? "选中后可直接更新状态与订单资料" : "当前角色仅可查看订单详情"}</span>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center gap-2 text-slate-900">
-                <ClipboardCheck className="h-4 w-4" />
-                <p className="text-sm font-medium">待审批</p>
-              </div>
-              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{pendingApprovalRecords.length}</p>
-              <p className="mt-1 text-sm text-slate-500">草稿和待确认订单总数</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center gap-2 text-slate-900">
-                <CalendarDays className="h-4 w-4" />
-                <p className="text-sm font-medium">七日排班</p>
-              </div>
-              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{scheduleBuckets.totalScheduled}</p>
-              <p className="mt-1 text-sm text-slate-500">未来七天已排日期订单</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">未补日期</p>
-              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{scheduleBuckets.unscheduled.length}</p>
-              <p className="mt-1 text-sm text-slate-500">不会进入调度板的订单数</p>
-            </div>
-          </div>
-
-          <DataTable
-            columns={["订单号", "客户", "行程", "日期", "负责人", "状态", "金额"]}
-            rows={tableRows}
-            selectedRowIndex={selectedRowIndex}
-            onRowClick={(_, rowIndex) => setSelectedId(filteredRecords[rowIndex]?.id ?? null)}
-            emptyMessage="当前筛选下没有订单。"
-          />
-        </div>
-        </SectionCard>
-
-        <SectionCard title="订单详情与操作" description="这里先落地最常用的维护动作：看详情、改状态、改基础信息。">
+      <SlideOver
+        open={editorOpen && Boolean(selectedRecord)}
+        onClose={() => setEditorOpen(false)}
+        title={selectedRecord ? `编辑订单 ${selectedRecord.orderNo}` : "编辑订单"}
+        description="订单详情、状态流转、基础资料、排车和成本维护都放在这里，主工作台只保留列表与核心操作。"
+      >
         {selectedRecord ? (
           <div className="space-y-4">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Selected Order</p>
-                  <p className="mt-2 text-xl font-semibold tracking-tight text-slate-900">{selectedRecord.orderNo}</p>
-                  <p className="mt-1 text-sm text-slate-600">{selectedRecord.title}</p>
-                  <div className="mt-3 flex items-center gap-2">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge label={selectedRecord.statusLabel} tone={resolveOrderTone(selectedRecord.status)} />
                     <span className="text-xs text-slate-500">{selectedRecord.customerName}</span>
                   </div>
+                  <h3 className="mt-3 break-words text-xl font-semibold tracking-tight text-slate-950">{selectedRecord.title}</h3>
+                  <p className="mt-2 break-words text-sm leading-6 text-slate-600">{selectedRecord.notes || "当前还没有内部备注。"}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDetailDrawerOpen(true)}
-                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
+                <form id={`delete-order-in-editor-${selectedRecord.id}`} action={deleteOrder} className="hidden">
+                  <input type="hidden" name="orderId" value={selectedRecord.id} />
+                </form>
+                <ConfirmActionButton
+                  formId={`delete-order-in-editor-${selectedRecord.id}`}
+                  title="确认删除这张订单？"
+                  description={`订单 ${selectedRecord.orderNo} 删除后将从订单、日历、利润和财务视图中移除。`}
+                  confirmLabel="确认删除订单"
+                  tone="danger"
+                  disabled={!canWriteOrders}
+                  className="inline-flex h-10 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  打开侧边详情
-                </button>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  删除订单
+                </ConfirmActionButton>
               </div>
             </div>
 
             <StatStrip
               items={[
-                { label: "客户", value: selectedRecord.customerName },
-                { label: "负责人", value: selectedRecord.assigneeName },
                 { label: "服务日期", value: selectedRecord.serviceDate || "未安排" },
+                { label: "负责人", value: selectedRecord.assigneeName },
                 { label: "预计营收", value: selectedRecord.revenueLabel },
-                { label: "已分配车辆", value: selectedRecord.vehicleName },
-                { label: "已分配司机", value: selectedRecord.driverName },
-                { label: "已分配导游", value: selectedRecord.guideName },
-                { label: "当前总成本", value: selectedRecord.totalCostLabel },
-                { label: "当前毛利", value: selectedRecord.grossProfitLabel },
+                { label: "总成本", value: selectedRecord.totalCostLabel },
+                { label: "毛利", value: selectedRecord.grossProfitLabel },
+                { label: "成本明细", value: `${selectedCostEntries.length} 条` },
               ]}
               columnsClassName="md:grid-cols-2 xl:grid-cols-3"
             />
@@ -432,7 +447,7 @@ export function OrderOperationsWorkbench({
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-sm font-medium text-slate-900">状态流转</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {statusTransitionItems.filter((item) => item.value !== "cancelled").map((item) => (
+                {statusTransitionItems.map((item) => (
                   <form key={item.value} action={updateOrderStatus}>
                     <input type="hidden" name="orderId" value={selectedRecord.id} />
                     <input type="hidden" name="status" value={item.value} />
@@ -465,51 +480,9 @@ export function OrderOperationsWorkbench({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-sm font-medium text-slate-900">资源冲突提醒</p>
-              <div className="mt-3 space-y-3">
-                {conflicts.length ? (
-                  conflicts.map((conflict) => (
-                    <div key={conflict.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                      <p className="text-sm font-medium text-amber-900">{conflict.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-amber-800">{conflict.description}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    当前选中订单没有检测到同日资源冲突，可以继续安排执行。
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">订单推进时间线</p>
-                  <p className="mt-1 text-sm text-slate-500">把审批、调度、成本和执行阶段串起来，方便快速判断下一步动作。</p>
-                </div>
-                <Badge label={`${timelineItems.length} 个节点`} tone="info" />
-              </div>
-              <div className="mt-4 space-y-3">
-                {timelineItems.map((item) => (
-                  <div key={item.title} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className={`mt-0.5 h-3 w-3 rounded-full ${item.done ? "bg-emerald-500" : "bg-slate-300"}`} />
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-slate-900">{item.title}</p>
-                        <Badge label={item.done ? "已完成" : "待处理"} tone={item.done ? "success" : "warning"} />
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">{item.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <form action={updateOrderBasics} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
               <input type="hidden" name="orderId" value={selectedRecord.id} />
-              <FormSection title="订单基础信息" description="先确定客户、标题和日期，这些字段会直接影响日历、Dashboard 和后续调度。">
+              <FormSection title="订单基础信息" description="这里是编辑订单的主入口，会同步影响日历、Dashboard 和利润模块。">
                 <div className="space-y-4">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-700">客户</label>
@@ -567,7 +540,7 @@ export function OrderOperationsWorkbench({
                 </div>
               </FormSection>
 
-              <FormSection title="营收与内部备注" description="预计营收和补充说明会继续影响利润模块、运营交接和异常复盘。">
+              <FormSection title="营收与内部备注" description="预计营收用于利润核算，备注用于运营交接和执行追溯。">
                 <div className="space-y-4">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-700">预计营收 JPY</label>
@@ -594,23 +567,23 @@ export function OrderOperationsWorkbench({
                 </div>
               </FormSection>
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-slate-500">
-                  {canWriteOrders ? "保存后将直接更新订单主表，并同步影响 Dashboard 与利润模块。" : "当前账号只能查看，不可修改订单。"}
+                  {canWriteOrders ? "保存后将直接更新订单主表。" : "当前账号只能查看，不可修改订单。"}
                 </p>
                 <PendingSubmitButton
                   disabled={!canWriteOrders}
                   pendingLabel="正在保存订单..."
                   className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  保存修改
+                  保存订单
                 </PendingSubmitButton>
               </div>
             </form>
 
             <form action={updateOrderDispatch} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
               <input type="hidden" name="orderId" value={selectedRecord.id} />
-              <FormSection title="排车与人员指派" description="同一天的车辆、司机、导游冲突会被后端直接拦截，保存前请先处理资源占用。">
+              <FormSection title="排车与人员指派" description="车辆、司机、导游冲突会被后端拦截，适合在编辑界面内统一处理。">
                 <div className="grid gap-4 md:grid-cols-3">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-700">车辆</label>
@@ -663,10 +636,19 @@ export function OrderOperationsWorkbench({
                 </div>
               </FormSection>
 
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-500">
-                  {canWriteOrders ? "保存后会把车辆、司机、导游分配写回 orders 表。" : "当前账号只有查看权限。"}
-                </p>
+              {conflicts.length ? (
+                <div className="space-y-2">
+                  {conflicts.map((conflict) => (
+                    <div key={conflict.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-sm font-medium text-amber-900">{conflict.title}</p>
+                      <p className="mt-1 text-sm leading-6 text-amber-800">{conflict.description}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-slate-500">{canWriteOrders ? "保存后会把资源分配写回订单。" : "当前账号只有查看权限。"}</p>
                 <PendingSubmitButton
                   disabled={!canWriteOrders}
                   pendingLabel="正在保存调度..."
@@ -677,78 +659,96 @@ export function OrderOperationsWorkbench({
               </div>
             </form>
 
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">订单推进摘要</p>
+                  <p className="mt-1 text-sm text-slate-500">详情不再占据主页面，只在编辑界面内展示。</p>
+                </div>
+                <Badge label={`${timelineItems.length} 个节点`} tone="info" />
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {timelineItems.map((item) => (
+                  <div key={item.title} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`h-2.5 w-2.5 rounded-full ${item.done ? "bg-emerald-500" : "bg-slate-300"}`} />
+                      <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                      <Badge label={item.done ? "已完成" : "待处理"} tone={item.done ? "success" : "warning"} />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <form action={addOrderCost} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
               <input type="hidden" name="orderId" value={selectedRecord.id} />
-              <FormSection title="成本录入" description="逐条录入车辆、司机、导游、酒店、餐食和杂费，系统会自动回写订单总成本。">
-                <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">成本类别</label>
-                      <select
-                        name="category"
-                        disabled={!canWriteOrders}
-                        defaultValue="vehicle"
-                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <option value="vehicle">车辆</option>
-                        <option value="driver">司机</option>
-                        <option value="guide">导游</option>
-                        <option value="hotel">酒店</option>
-                        <option value="meal">餐食</option>
-                        <option value="ticket">门票</option>
-                        <option value="misc">杂费</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">金额 JPY</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1000"
-                        name="amountJpy"
-                        placeholder="50000"
-                        disabled={!canWriteOrders}
-                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">成本项名称</label>
-                      <input
-                        type="text"
-                        name="label"
-                        placeholder="例如：成田接机车辆费"
-                        disabled={!canWriteOrders}
-                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">供应商 / 备注对象</label>
-                      <input
-                        type="text"
-                        name="supplierName"
-                        placeholder="例如：Tokyo Partner Bus"
-                        disabled={!canWriteOrders}
-                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                    </div>
+              <FormSection title="成本录入" description="成本维护收进订单编辑界面，避免主工作台被低频表单占满。">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">成本类别</label>
+                    <select
+                      name="category"
+                      disabled={!canWriteOrders}
+                      defaultValue="vehicle"
+                      className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="vehicle">车辆</option>
+                      <option value="driver">司机</option>
+                      <option value="guide">导游</option>
+                      <option value="hotel">酒店</option>
+                      <option value="meal">餐食</option>
+                      <option value="ticket">门票</option>
+                      <option value="misc">杂费</option>
+                    </select>
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">成本备注</label>
-                    <textarea
-                      name="costNotes"
-                      rows={3}
+                    <label className="mb-2 block text-sm font-medium text-slate-700">金额 JPY</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      name="amountJpy"
+                      placeholder="50000"
                       disabled={!canWriteOrders}
-                      placeholder="记录结算方式、数量、特殊费用说明"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">成本项名称</label>
+                    <input
+                      type="text"
+                      name="label"
+                      placeholder="例如：成田接机车辆费"
+                      disabled={!canWriteOrders}
+                      className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">供应商 / 备注对象</label>
+                    <input
+                      type="text"
+                      name="supplierName"
+                      placeholder="例如：Tokyo Partner Bus"
+                      disabled={!canWriteOrders}
+                      className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
                 </div>
+                <div className="mt-4">
+                  <label className="mb-2 block text-sm font-medium text-slate-700">成本备注</label>
+                  <textarea
+                    name="costNotes"
+                    rows={3}
+                    disabled={!canWriteOrders}
+                    placeholder="记录结算方式、数量、特殊费用说明"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                </div>
               </FormSection>
 
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-500">
-                  {canWriteOrders ? "新增后会同步刷新订单总成本与利润。" : "当前账号只有查看权限。"}
-                </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-slate-500">{canWriteOrders ? "新增后会同步刷新订单总成本与利润。" : "当前账号只有查看权限。"}</p>
                 <PendingSubmitButton
                   disabled={!canWriteOrders}
                   pendingLabel="正在录入成本..."
@@ -763,7 +763,7 @@ export function OrderOperationsWorkbench({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-slate-900">成本明细</p>
-                  <p className="mt-1 text-sm text-slate-500">支持查看当前订单已录入的成本项，并删除误录项目。</p>
+                  <p className="mt-1 text-sm text-slate-500">支持编辑或删除误录成本。</p>
                 </div>
                 <Badge label={`${selectedCostEntries.length} 条`} tone="info" />
               </div>
@@ -776,15 +776,15 @@ export function OrderOperationsWorkbench({
                     return (
                       <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium text-slate-900">{entry.label}</p>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="break-words text-sm font-medium text-slate-900">{entry.label}</p>
                               <Badge label={entry.categoryLabel} tone="neutral" />
                             </div>
-                            <p className="mt-2 text-sm text-slate-600">供应商：{entry.supplierName}</p>
-                            {entry.notes ? <p className="mt-1 text-sm text-slate-500">{entry.notes}</p> : null}
+                            <p className="mt-2 break-words text-sm text-slate-600">供应商：{entry.supplierName}</p>
+                            {entry.notes ? <p className="mt-1 break-words text-sm text-slate-500">{entry.notes}</p> : null}
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-slate-900">{entry.amountLabel}</p>
                             {canWriteOrders ? (
                               <>
@@ -793,21 +793,21 @@ export function OrderOperationsWorkbench({
                                   onClick={() => setEditingCostId(isEditing ? null : entry.id)}
                                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
                                 >
-                                  {isEditing ? "收起编辑" : "编辑"}
+                                  {isEditing ? "收起" : "编辑"}
                                 </button>
-                                <form id={`delete-order-cost-${entry.id}`} action={deleteOrderCost}>
+                                <form id={`delete-order-cost-${entry.id}`} action={deleteOrderCost} className="hidden">
                                   <input type="hidden" name="costId" value={entry.id} />
                                   <input type="hidden" name="orderId" value={selectedRecord.id} />
-                                  <ConfirmActionButton
-                                    formId={`delete-order-cost-${entry.id}`}
-                                    title="确认删除这条成本明细？"
-                                    description="删除后会重新计算这张订单的总成本和毛利。"
-                                    confirmLabel="确认删除"
-                                    tone="danger"
-                                  >
-                                    删除
-                                  </ConfirmActionButton>
                                 </form>
+                                <ConfirmActionButton
+                                  formId={`delete-order-cost-${entry.id}`}
+                                  title="确认删除这条成本明细？"
+                                  description="删除后会重新计算这张订单的总成本和毛利。"
+                                  confirmLabel="确认删除"
+                                  tone="danger"
+                                >
+                                  删除
+                                </ConfirmActionButton>
                               </>
                             ) : null}
                           </div>
@@ -873,13 +873,12 @@ export function OrderOperationsWorkbench({
                                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-cyan-400 focus:bg-white"
                               />
                             </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm text-slate-500">保存后会重新计算当前订单总成本和毛利。</p>
+                            <div className="flex justify-end">
                               <PendingSubmitButton
                                 pendingLabel="正在保存成本..."
                                 className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800"
                               >
-                                保存成本修改
+                                保存成本
                               </PendingSubmitButton>
                             </div>
                           </form>
@@ -893,90 +892,6 @@ export function OrderOperationsWorkbench({
                     description="先录入车辆、司机、导游或杂费成本，这张订单的毛利就会开始实时可见。"
                   />
                 )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <EmptyStateCard
-            title="还没有选中订单"
-            description="从左侧订单列表里点选一条记录，右侧就会展开这张订单的基础信息、调度、成本和推进情况。"
-          />
-        )}
-        </SectionCard>
-      </section>
-
-      <SlideOver
-        open={detailDrawerOpen && Boolean(selectedRecord)}
-        onClose={() => setDetailDrawerOpen(false)}
-        title={selectedRecord ? `${selectedRecord.orderNo} 侧边详情` : "订单详情"}
-        description="把当前订单的关键信息、冲突提醒和推进节点收进一个独立面板，方便边看列表边追细节。"
-      >
-        {selectedRecord ? (
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge label={selectedRecord.statusLabel} tone={resolveOrderTone(selectedRecord.status)} />
-                <span className="text-xs text-slate-500">{selectedRecord.customerName}</span>
-              </div>
-              <p className="mt-3 text-xl font-semibold tracking-tight text-slate-950">{selectedRecord.title}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{selectedRecord.notes || "当前还没有内部备注。"}</p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                ["服务日期", selectedRecord.serviceDate || "未安排"],
-                ["负责人", selectedRecord.assigneeName],
-                ["车辆", selectedRecord.vehicleName],
-                ["司机", selectedRecord.driverName],
-                ["导游", selectedRecord.guideName],
-                ["毛利", selectedRecord.grossProfitLabel],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</p>
-                  <p className="mt-2 text-sm font-medium text-slate-900">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-slate-900">资源冲突提醒</p>
-                <Badge label={conflicts.length ? `${conflicts.length} 项风险` : "状态正常"} tone={conflicts.length ? "warning" : "success"} />
-              </div>
-              <div className="mt-4 space-y-3">
-                {conflicts.length ? (
-                  conflicts.map((conflict) => (
-                    <div key={conflict.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                      <p className="text-sm font-medium text-amber-900">{conflict.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-amber-800">{conflict.description}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    当前没有检测到同日资源冲突。
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-slate-900">推进节点</p>
-                <Badge label={`${timelineItems.length} 个节点`} tone="info" />
-              </div>
-              <div className="mt-4 space-y-3">
-                {timelineItems.map((item) => (
-                  <div key={item.title} className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className={`mt-0.5 h-3 w-3 rounded-full ${item.done ? "bg-emerald-500" : "bg-slate-300"}`} />
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-slate-900">{item.title}</p>
-                        <Badge label={item.done ? "已完成" : "待处理"} tone={item.done ? "success" : "warning"} />
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">{item.description}</p>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
@@ -1022,7 +937,7 @@ function detectResourceConflicts(selectedRecord: OrderOperationsRecord, records:
 
 function resolveOrderTone(status: string) {
   if (status === "in_progress" || status === "completed" || status === "scheduled") return "success" as const;
-  if (status === "pending_confirmation") return "warning" as const;
+  if (status === "pending_confirmation" || status === "draft") return "warning" as const;
   if (status === "cancelled") return "neutral" as const;
   return "info" as const;
 }
@@ -1057,41 +972,12 @@ function buildOrderTimeline(record: OrderOperationsRecord, costEntries: OrderCos
   ];
 }
 
-function buildScheduleBuckets(records: OrderOperationsRecord[]) {
-  const datedRecords = records
-    .filter((record) => record.serviceDate)
-    .sort((left, right) => left.serviceDate.localeCompare(right.serviceDate));
+function formatOrderDate(value: string) {
+  if (!value) return "未安排";
 
-  const uniqueDates = Array.from(new Set(datedRecords.map((record) => record.serviceDate))).slice(0, 7);
-
-  const days = uniqueDates.map((date) => {
-    const dayRecords = datedRecords.filter((record) => record.serviceDate === date);
-    const day = new Date(`${date}T00:00:00`);
-
-    return {
-      date,
-      label: formatDateLabel(day),
-      weekday: formatWeekdayLabel(day),
-      records: dayRecords,
-    };
-  });
-
-  return {
-    days,
-    totalScheduled: datedRecords.length,
-    unscheduled: records.filter((record) => !record.serviceDate),
-  };
-}
-
-function formatDateLabel(value: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-  }).format(value);
-}
-
-function formatWeekdayLabel(value: Date) {
-  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
     weekday: "short",
-  }).format(value);
+  }).format(new Date(`${value}T00:00:00`));
 }
