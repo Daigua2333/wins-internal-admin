@@ -83,6 +83,14 @@ function getPricingFeedback(params: { message?: string; error?: string; detail?:
     };
   }
 
+  if (params.message === "quotation_deleted") {
+    return {
+      type: "success" as const,
+      message: "报价单已删除。",
+      detail: "报价台账和客户关联视图已经同步刷新。",
+    };
+  }
+
   if (params.error === "not_allowed") {
     return {
       type: "error" as const,
@@ -154,6 +162,14 @@ function getPricingFeedback(params: { message?: string; error?: string; detail?:
       type: "error" as const,
       message: "报价转订单失败。",
       detail: params.detail ? decodeURIComponent(params.detail) : "请检查 orders 表写入策略、报价数据完整性和当前账号权限。",
+    };
+  }
+
+  if (params.error === "delete_failed") {
+    return {
+      type: "error" as const,
+      message: "报价单删除失败。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "请检查报价删除权限和关联数据。",
     };
   }
 

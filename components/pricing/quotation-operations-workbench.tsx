@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 
-import { convertQuotationToOrder, createQuotation, updateQuotationBasics, updateQuotationStatus } from "@/app/(dashboard)/pricing/actions";
+import { convertQuotationToOrder, createQuotation, deleteQuotation, updateQuotationBasics, updateQuotationStatus } from "@/app/(dashboard)/pricing/actions";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmActionButton } from "@/components/ui/confirm-action-button";
 import { DataTable } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyStateCard } from "@/components/ui/empty-state-card";
@@ -267,6 +268,12 @@ export function QuotationOperationsWorkbench({
                       <span className="text-xs text-slate-500">{selectedRecord.customerName}</span>
                     </div>
                     <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/customers/${selectedRecord.customerId}`}
+                        className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700"
+                      >
+                        打开客户档案
+                      </Link>
                       {selectedRecord.linkedOrderId && selectedRecord.linkedOrderNo ? (
                         <>
                           <Badge label={`已转订单 ${selectedRecord.linkedOrderNo}`} tone="success" />
@@ -289,6 +296,18 @@ export function QuotationOperationsWorkbench({
                           </PendingSubmitButton>
                         </form>
                       )}
+                      <form id={`delete-quotation-${selectedRecord.id}`} action={deleteQuotation}>
+                        <input type="hidden" name="quotationId" value={selectedRecord.id} />
+                      </form>
+                      <ConfirmActionButton
+                        formId={`delete-quotation-${selectedRecord.id}`}
+                        title="确认删除这份报价？"
+                        description="未转为订单的报价可以删除；已关联订单的报价建议保留用于追溯。"
+                        confirmLabel="确认删除"
+                        disabled={!canWriteQuotations || Boolean(selectedRecord.linkedOrderId)}
+                      >
+                        删除报价
+                      </ConfirmActionButton>
                     </div>
                   </div>
                   <button

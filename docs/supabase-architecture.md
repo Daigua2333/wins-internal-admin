@@ -19,7 +19,9 @@
 - `profiles`
   - 用户资料与角色
 - `customers`
-  - 客户公司、联系人、账期、市场信息
+  - 长期 / 短期 / 一次性客户分类、公司介绍、联系人、微信 / LINE、账期与市场信息
+- `customer_collaboration_tasks`
+  - 客户提出的合作要求、优先级、截止日期与任务进度
 - `vehicles`
   - 自有/合作车辆与保养状态
 - `drivers`
@@ -35,12 +37,12 @@
 
 ## Recommended Flow
 
-1. 销售创建 `customer`
+1. 销售创建 `customer`，并维护客户类型、联系人与合作需求任务
 2. 销售创建 `quotation`
 3. 报价确认后生成 `order`
 4. 运营/调度给 `order` 分配 `vehicle / driver / guide`
 5. 财务或运营录入 `trip_costs`
-6. 订单自动或手动汇总利润字段
+6. 财务登记回款与供应商付款，订单自动汇总利润字段
 
 ## RLS Direction
 

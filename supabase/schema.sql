@@ -61,14 +61,35 @@ $$;
 create table if not exists public.customers (
   id uuid primary key default gen_random_uuid(),
   company_name text not null,
+  customer_type text not null default 'long_term' check (customer_type in ('long_term', 'short_term', 'one_time')),
+  company_profile text,
   contact_name text not null,
   contact_email text,
   contact_phone text,
+  wechat_id text,
+  line_id text,
   market_segment text not null,
   billing_terms text,
   credit_limit_jpy numeric(12, 0),
   status text not null default 'active' check (status in ('active', 'nurturing', 'settled', 'inactive')),
   notes text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.customers add column if not exists customer_type text not null default 'long_term';
+alter table public.customers add column if not exists company_profile text;
+alter table public.customers add column if not exists wechat_id text;
+alter table public.customers add column if not exists line_id text;
+
+create table if not exists public.customer_collaboration_tasks (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid not null references public.customers(id) on delete cascade,
+  title text not null,
+  description text,
+  status text not null default 'todo' check (status in ('todo', 'in_progress', 'waiting', 'completed', 'cancelled')),
+  priority text not null default 'normal' check (priority in ('low', 'normal', 'high', 'urgent')),
+  due_on date,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -254,6 +275,8 @@ create index if not exists idx_orders_service_date on public.orders(service_date
 create unique index if not exists idx_orders_archive_code on public.orders(archive_code) where archive_code is not null;
 create index if not exists idx_orders_archived_at on public.orders(archived_at) where archived_at is not null;
 create index if not exists idx_orders_archive_service_date on public.orders(service_date) where archived_at is not null;
+create index if not exists idx_customer_collaboration_tasks_customer_id on public.customer_collaboration_tasks(customer_id);
+create index if not exists idx_customer_collaboration_tasks_due_on on public.customer_collaboration_tasks(due_on);
 create unique index if not exists idx_drivers_unique_default_vehicle_id on public.drivers(default_vehicle_id) where default_vehicle_id is not null;
 create index if not exists idx_driver_incidents_driver_id on public.driver_incidents(driver_id);
 create index if not exists idx_driver_incidents_occurred_on on public.driver_incidents(occurred_on);
@@ -269,6 +292,8 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
 drop trigger if exists set_customers_updated_at on public.customers;
 create trigger set_customers_updated_at before update on public.customers for each row execute function public.set_updated_at();
+drop trigger if exists set_customer_collaboration_tasks_updated_at on public.customer_collaboration_tasks;
+create trigger set_customer_collaboration_tasks_updated_at before update on public.customer_collaboration_tasks for each row execute function public.set_updated_at();
 drop trigger if exists set_vehicles_updated_at on public.vehicles;
 create trigger set_vehicles_updated_at before update on public.vehicles for each row execute function public.set_updated_at();
 drop trigger if exists set_drivers_updated_at on public.drivers;
@@ -292,6 +317,7 @@ create trigger set_supplier_payments_updated_at before update on public.supplier
 
 alter table public.profiles enable row level security;
 alter table public.customers enable row level security;
+alter table public.customer_collaboration_tasks enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.drivers enable row level security;
 alter table public.driver_incidents enable row level security;
@@ -310,6 +336,10 @@ drop policy if exists "admins_update_all_profiles" on public.profiles;
 drop policy if exists "authenticated_read_customers" on public.customers;
 drop policy if exists "role_write_customers" on public.customers;
 drop policy if exists "role_update_customers" on public.customers;
+drop policy if exists "authenticated_read_customer_collaboration_tasks" on public.customer_collaboration_tasks;
+drop policy if exists "role_write_customer_collaboration_tasks" on public.customer_collaboration_tasks;
+drop policy if exists "role_update_customer_collaboration_tasks" on public.customer_collaboration_tasks;
+drop policy if exists "role_delete_customer_collaboration_tasks" on public.customer_collaboration_tasks;
 drop policy if exists "authenticated_read_vehicles" on public.vehicles;
 drop policy if exists "role_write_vehicles" on public.vehicles;
 drop policy if exists "role_update_vehicles" on public.vehicles;
@@ -332,6 +362,7 @@ drop policy if exists "admin_update_app_settings" on public.app_settings;
 drop policy if exists "authenticated_read_quotations" on public.quotations;
 drop policy if exists "role_write_quotations" on public.quotations;
 drop policy if exists "role_update_quotations" on public.quotations;
+drop policy if exists "role_delete_quotations" on public.quotations;
 drop policy if exists "authenticated_read_orders" on public.orders;
 drop policy if exists "authenticated_read_trip_costs" on public.trip_costs;
 drop policy if exists "role_write_orders" on public.orders;
@@ -356,6 +387,10 @@ create policy "admins_update_all_profiles" on public.profiles for update to auth
 create policy "authenticated_read_customers" on public.customers for select to authenticated using (true);
 create policy "role_write_customers" on public.customers for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_update_customers" on public.customers for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
+create policy "authenticated_read_customer_collaboration_tasks" on public.customer_collaboration_tasks for select to authenticated using (true);
+create policy "role_write_customer_collaboration_tasks" on public.customer_collaboration_tasks for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
+create policy "role_update_customer_collaboration_tasks" on public.customer_collaboration_tasks for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
+create policy "role_delete_customer_collaboration_tasks" on public.customer_collaboration_tasks for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "authenticated_read_vehicles" on public.vehicles for select to authenticated using (true);
 create policy "role_write_vehicles" on public.vehicles for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_vehicles" on public.vehicles for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
@@ -378,6 +413,7 @@ create policy "admin_update_app_settings" on public.app_settings for update to a
 create policy "authenticated_read_quotations" on public.quotations for select to authenticated using (true);
 create policy "role_write_quotations" on public.quotations for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_update_quotations" on public.quotations for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
+create policy "role_delete_quotations" on public.quotations for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "authenticated_read_orders" on public.orders for select to authenticated using (true);
 create policy "authenticated_read_trip_costs" on public.trip_costs for select to authenticated using (true);
 create policy "role_write_orders" on public.orders for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));

@@ -96,6 +96,14 @@ function getFinanceFeedback(params: { message?: string; error?: string; detail?:
     };
   }
 
+  if (params.message === "receipt_deleted") {
+    return { type: "success" as const, message: "回款记录已删除。", detail: "应收余额和客户对账摘要已经重新计算。" };
+  }
+
+  if (params.message === "supplier_payment_deleted") {
+    return { type: "success" as const, message: "供应商付款记录已删除。", detail: "付款台账和净现金流已经重新计算。" };
+  }
+
   if (params.error === "not_allowed") {
     return { type: "error" as const, message: "当前账号没有维护回款记录的权限。" };
   }
@@ -165,6 +173,14 @@ function getFinanceFeedback(params: { message?: string; error?: string; detail?:
       type: "error" as const,
       message: "供应商付款更新失败。",
       detail: params.detail ? decodeURIComponent(params.detail) : "请确认当前账号具备 finance.write 权限，且 Supabase 已执行最新版 schema.sql。",
+    };
+  }
+
+  if (params.error === "delete_failed" || params.error === "supplier_delete_failed") {
+    return {
+      type: "error" as const,
+      message: "财务记录删除失败。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "请检查 finance.write 权限和 Supabase 删除策略。",
     };
   }
 

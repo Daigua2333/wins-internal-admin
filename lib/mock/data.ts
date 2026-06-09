@@ -535,9 +535,9 @@ export const pricingSummary = [
 ];
 
 export const customerSummary = [
-  { title: "活跃客户", value: "5 家", detail: "本月均有订单或报价往来" },
-  { title: "重点跟进", value: "2 家", detail: "研学与 FIT 客户仍在报价阶段" },
-  { title: "未结余额", value: "¥2.59M", detail: "需财务与销售联动跟进" },
+  { title: "长期合作", value: "3 家", detail: "持续制定服务标准与合作任务" },
+  { title: "短期合作", value: "1 家", detail: "按项目阶段维护完整档案" },
+  { title: "一次性客户", value: "1 家", detail: "完成后保留资料便于再次联络" },
   { title: "本月新增", value: "1 家", detail: "新增高端 FIT 定制客户" },
 ];
 

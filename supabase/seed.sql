@@ -13,6 +13,7 @@ delete from public.trip_costs;
 delete from public.driver_incidents;
 delete from public.orders;
 delete from public.quotations;
+delete from public.customer_collaboration_tasks;
 delete from public.guides;
 delete from public.drivers;
 delete from public.vehicles;
@@ -20,9 +21,13 @@ delete from public.customers;
 
 insert into public.customers (
   company_name,
+  customer_type,
+  company_profile,
   contact_name,
   contact_email,
   contact_phone,
+  wechat_id,
+  line_id,
   market_segment,
   billing_terms,
   credit_limit_jpy,
@@ -32,9 +37,13 @@ insert into public.customers (
 values
   (
     'WINS East Asia Partner',
+    'long_term',
+    '长期合作的华东企业奖励游渠道伙伴，持续安排东京、箱根和富士山团队。',
     '王经理',
     'wang.manager@example.com',
     '+86-21-6000-1001',
+    'wins_eastasia',
+    null,
     '中国华东企业奖励游',
     '月结 30 天',
     1800000,
@@ -43,9 +52,13 @@ values
   ),
   (
     'Tokyo One Day Repeat Tours',
+    'long_term',
+    '重复运营中文一日游的核心合作客户，出团频率高，需要稳定车辆和司机资源。',
     '李主管',
     'ops.repeat@example.com',
     '+81-3-6000-1002',
+    'tokyo_repeat_ops',
+    'tokyo.repeat.tours',
     '中文散拼一日游',
     '每周结算',
     1200000,
@@ -54,9 +67,13 @@ values
   ),
   (
     'Hokkaido & Kanto Education Desk',
+    'short_term',
+    '按学期合作的教育研学客户，需要学校名单、保险、随车老师与研学资料。',
     'Ms. Chen',
     'education.desk@example.com',
     '+81-3-6000-1003',
+    null,
+    'education.desk',
     '教育研学',
     '定金 50% / 出团前结清',
     680000,
@@ -65,9 +82,13 @@ values
   ),
   (
     'Asia Incentive Circle',
+    'long_term',
+    '东南亚企业会奖合作伙伴，偏好 VIP 接机、企业参访与晚宴安排。',
     'Mr. Lim',
     'lim@asiaincentive.example',
     '+65-6000-1004',
+    null,
+    'asia.incentive',
     '企业会奖',
     '即期',
     2200000,
@@ -76,14 +97,45 @@ values
   ),
   (
     'Premium FIT Concierge',
+    'one_time',
+    '高端定制 FIT 项目客户，当前以单次项目合作为主，保留档案便于未来再次联系。',
     '高桥顾问',
     'concierge.fit@example.com',
     '+81-90-6000-1005',
+    'premium_fit_tokyo',
+    null,
     '高端定制 FIT',
     '预付 70% / 结束后 7 天内结清',
     500000,
     'nurturing',
     '高端定制客户，适合测试高毛利小团和供应商付款。'
+  );
+
+insert into public.customer_collaboration_tasks (customer_id, title, description, status, priority, due_on)
+values
+  (
+    (select id from public.customers where company_name = 'Tokyo One Day Repeat Tours' limit 1),
+    '确认巴士 Wi-Fi 配置',
+    '确认重复一日游执行车辆可提供稳定 Wi-Fi，并在出团前回传连接方式。',
+    'in_progress',
+    'high',
+    '2026-06-18'
+  ),
+  (
+    (select id from public.customers where company_name = 'Hokkaido & Kanto Education Desk' limit 1),
+    '准备研学团队中文资料',
+    '整理中文行程单、集合点地图、保险说明和紧急联系方式。',
+    'waiting',
+    'urgent',
+    '2026-06-15'
+  ),
+  (
+    (select id from public.customers where company_name = 'Asia Incentive Circle' limit 1),
+    '确认 VIP 晚宴场地',
+    '等待客户确认人数后锁定东京市区晚宴场地。',
+    'todo',
+    'normal',
+    '2026-06-25'
   );
 
 insert into public.vehicles (

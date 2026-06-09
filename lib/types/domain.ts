@@ -5,6 +5,7 @@ export type VehicleStatus = "available" | "maintenance" | "assigned" | "inactive
 export type StaffStatus = "available" | "assigned" | "off_duty" | "inactive";
 export type QuoteStatus = "draft" | "sent" | "accepted" | "expired" | "rejected";
 export type CustomerStatus = "active" | "nurturing" | "settled" | "inactive";
+export type CustomerType = "long_term" | "short_term" | "one_time";
 export type PaymentReceiptMethod = "bank_transfer" | "cash" | "credit_card" | "other";
 export type PaymentReceiptStatus = "pending" | "received" | "reconciled";
 export type SupplierPaymentStatus = "pending" | "paid" | "reconciled";
@@ -26,14 +27,28 @@ export type Profile = TimestampFields & {
 export type Customer = TimestampFields & {
   id: string;
   company_name: string;
+  customer_type: CustomerType;
+  company_profile: string | null;
   contact_name: string;
   contact_email: string | null;
   contact_phone: string | null;
+  wechat_id: string | null;
+  line_id: string | null;
   market_segment: string;
   billing_terms: string | null;
   credit_limit_jpy: number | null;
   status: CustomerStatus;
   notes: string | null;
+};
+
+export type CustomerCollaborationTask = TimestampFields & {
+  id: string;
+  customer_id: string;
+  title: string;
+  description: string | null;
+  status: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
+  priority: "low" | "normal" | "high" | "urgent";
+  due_on: string | null;
 };
 
 export type Vehicle = TimestampFields & {

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 
 import { ProfitOverview } from "@/components/charts/profit-overview";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +13,7 @@ import type { ProfitOperationsRecord } from "@/lib/loaders/admin";
 type ProfitOperationsWorkbenchProps = {
   records: ProfitOperationsRecord[];
   canViewSensitiveMetrics: boolean;
+  canMaintainCosts: boolean;
   chartData: Array<{
     label: string;
     revenue: number;
@@ -21,15 +24,21 @@ type ProfitOperationsWorkbenchProps = {
 export function ProfitOperationsWorkbench({
   records,
   canViewSensitiveMetrics,
+  canMaintainCosts,
   chartData,
 }: ProfitOperationsWorkbenchProps) {
   const [statusFilter, setStatusFilter] = useState("全部");
+  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(records[0]?.id ?? null);
 
   const filteredRecords = useMemo(() => {
-    if (statusFilter === "全部") return records;
-    return records.filter((record) => record.statusLabel === statusFilter);
-  }, [records, statusFilter]);
+    const normalized = query.trim().toLowerCase();
+    return records.filter((record) => {
+      const matchesStatus = statusFilter === "全部" || record.statusLabel === statusFilter;
+      const matchesQuery = !normalized || [record.orderNo, record.project, record.customerName].join(" ").toLowerCase().includes(normalized);
+      return matchesStatus && matchesQuery;
+    });
+  }, [query, records, statusFilter]);
 
   const selectedRecord = filteredRecords.find((row) => row.id === selectedId) ?? filteredRecords[0] ?? null;
   const selectedIndex = selectedRecord ? filteredRecords.findIndex((row) => row.id === selectedRecord.id) : undefined;
@@ -51,6 +60,10 @@ export function ProfitOperationsWorkbench({
         </SectionCard>
 
         <SectionCard title="利润观察" description="帮助运营和财务快速判断哪些订单毛利健康，哪些项目需要补看成本构成。">
+          <label className="mb-4 flex h-11 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索订单号、客户或行程" className="w-full bg-transparent text-sm outline-none" />
+          </label>
           <div className="flex flex-wrap gap-2">
             {["全部", "盈利中", "正常", "已取消"].map((filter) => (
               <button
@@ -78,6 +91,14 @@ export function ProfitOperationsWorkbench({
                 </p>
                 <div className="mt-3">
                   <Badge label={selectedRecord.statusLabel} tone={resolveProfitTone(selectedRecord.status)} />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link href={`/orders?focus=${encodeURIComponent(selectedRecord.id)}`} className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-800">
+                    {canMaintainCosts ? "打开订单并维护成本" : "打开订单详情"}
+                  </Link>
+                  <Link href="/finance" className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700">
+                    前往回款与对账
+                  </Link>
                 </div>
               </div>
 

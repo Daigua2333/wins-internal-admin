@@ -34,8 +34,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
     <>
       <PageIntro
         eyebrow="Customer CRM"
-        title="客户信息模块"
-        description="聚合 B2B 客户资料、联系人、市场来源、历史订单与往来余额，作为销售、运营与财务协同的基础数据中心。"
+        title="客户档案"
+        description="统一保存长期合作、短期合作和一次性客户。一级页面快速识别客户背景与订单体量，详情、跟进和合作任务进入二级档案维护。"
       />
 
       <DashboardToast feedback={feedback} />
@@ -119,6 +119,13 @@ function getCustomersFeedback(params: { message?: string; error?: string; detail
     return {
       type: "error" as const,
       message: "客户状态无效，请重新选择。",
+    };
+  }
+
+  if (params.error === "invalid_customer_type") {
+    return {
+      type: "error" as const,
+      message: "客户类型无效，请重新选择长期合作、短期合作或一次性客户。",
     };
   }
 

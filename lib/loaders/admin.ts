@@ -303,9 +303,14 @@ export type CustomerQuoteEntry = {
 export type CustomerOperationsRecord = {
   id: string;
   companyName: string;
+  customerType: string;
+  customerTypeLabel: string;
+  companyProfile: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  wechatId: string;
+  lineId: string;
   marketSegment: string;
   billingTerms: string;
   creditLimitJpy: number;
@@ -316,8 +321,20 @@ export type CustomerOperationsRecord = {
   orderCountLabel: string;
   notes: string;
   followLogs: CustomerFollowLog[];
+  collaborationTasks: CustomerCollaborationTaskRecord[];
   orderTimeline: CustomerOrderTimelineEntry[];
   quoteEntries: CustomerQuoteEntry[];
+};
+export type CustomerCollaborationTaskRecord = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  statusLabel: string;
+  priority: string;
+  priorityLabel: string;
+  dueOn: string;
+  dueOnLabel: string;
 };
 export type PricingOperationsRecord = {
   id: string;
@@ -967,19 +984,25 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
     return customerRows.map((row, index) => ({
       id: `mock-customer-${index + 1}`,
       companyName: row.company,
+      customerType: index < 2 ? "long_term" : index === 2 ? "short_term" : "one_time",
+      customerTypeLabel: index < 2 ? "长期合作" : index === 2 ? "短期合作" : "一次性客户",
+      companyProfile: index < 2 ? "稳定合作的东京入境旅游渠道伙伴，持续安排一日游与企业团。" : "按具体项目合作的旅游客户，保留完整档案便于未来再次联络。",
       contactName: row.contact,
       contactEmail: `contact${index + 1}@wins-demo.jp`,
       contactPhone: "03-0000-0000",
+      wechatId: index % 2 === 0 ? `wins_customer_${index + 1}` : "",
+      lineId: index % 2 === 1 ? `wins.customer.${index + 1}` : "",
       marketSegment: row.market,
       billingTerms: index % 2 === 0 ? "月末締め翌月末払い" : "当月締め翌月15日払い",
       creditLimitJpy: parseCurrencyLabel(row.balance),
       creditLimitLabel: row.balance,
       status: mapCustomerStatusToCode(row.status),
-      statusLabel: row.status,
+      statusLabel: mapCustomerStatus(mapCustomerStatusToCode(row.status)),
       orderCount: Number(row.orders),
       orderCountLabel: `${row.orders} 单`,
       notes: "当前为 mock 客户档案，可继续补联系人偏好、账期和跟进结论。",
       followLogs: buildMockCustomerFollowLogs(index + 1),
+      collaborationTasks: buildMockCustomerCollaborationTasks(index + 1),
       orderTimeline: buildMockCustomerOrderTimeline(index + 1, row.company),
       quoteEntries: buildMockCustomerQuoteEntries(index + 1, row.company),
     }));
@@ -993,7 +1016,7 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
   }
 
   const customerIds = data.map((customer) => customer.id);
-  const [{ data: orderData }, { data: quoteData }] = await Promise.all([
+  const [{ data: orderData }, { data: quoteData }, { data: taskData, error: taskError }] = await Promise.all([
     supabase
       .from("orders")
       .select("id,customer_id,order_no,title,service_date,status,revenue_jpy")
@@ -1004,7 +1027,15 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
       .select("id,customer_id,quote_no,title,service_date,valid_until,status,subtotal_jpy")
       .in("customer_id", customerIds)
       .order("updated_at", { ascending: false }),
+    supabase
+      .from("customer_collaboration_tasks")
+      .select("id,customer_id,title,description,status,priority,due_on")
+      .in("customer_id", customerIds)
+      .order("due_on", { ascending: true }),
   ]);
+  if (taskError) {
+    console.error("[customers:collaboration-tasks]", taskError.message);
+  }
 
   const ordersByCustomer = new Map<string, CustomerOrderRow[]>();
   for (const order of (orderData ?? []) as CustomerOrderRow[]) {
@@ -1028,9 +1059,14 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
       return {
         id: customer.id,
         companyName: customer.company_name,
+        customerType: customer.customer_type ?? "long_term",
+        customerTypeLabel: mapCustomerType(customer.customer_type ?? "long_term"),
+        companyProfile: customer.company_profile ?? "",
         contactName: customer.contact_name,
         contactEmail: customer.contact_email ?? "",
         contactPhone: customer.contact_phone ?? "",
+        wechatId: customer.wechat_id ?? "",
+        lineId: customer.line_id ?? "",
         marketSegment: customer.market_segment,
         billingTerms: customer.billing_terms ?? "",
         creditLimitJpy: Number(customer.credit_limit_jpy ?? 0),
@@ -1041,6 +1077,19 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
         orderCountLabel: `${customerOrders.length} 单`,
         notes: customer.notes ?? "",
         followLogs: parseCustomerFollowLogs(customer.notes),
+        collaborationTasks: ((taskData as Array<any> | null) ?? [])
+          .filter((task) => task.customer_id === customer.id)
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            description: task.description ?? "",
+            status: task.status,
+            statusLabel: mapCollaborationTaskStatus(task.status),
+            priority: task.priority,
+            priorityLabel: mapCollaborationTaskPriority(task.priority),
+            dueOn: task.due_on ?? "",
+            dueOnLabel: task.due_on ? formatDateDetail(task.due_on) : "未设置",
+          })),
         orderTimeline: customerOrders.slice(0, 8).map((order) => ({
           id: order.id,
           orderNo: order.order_no,
@@ -1737,19 +1786,15 @@ export async function getCustomerSummaryItems(): Promise<SummaryItem[]> {
 
   const data = await customers.list({ limit: 200 });
 
-  if (!data.length) {
-    return customerSummary;
-  }
-
-  const activeCustomers = data.filter((item) => ["active", "nurturing"].includes(item.status)).length;
-  const followUpCustomers = data.filter((item) => item.status === "nurturing").length;
-  const totalCreditLimit = data.reduce((sum, item) => sum + Number(item.credit_limit_jpy ?? 0), 0);
+  const longTermCustomers = data.filter((item) => item.customer_type === "long_term").length;
+  const shortTermCustomers = data.filter((item) => item.customer_type === "short_term").length;
+  const oneTimeCustomers = data.filter((item) => item.customer_type === "one_time").length;
   const newThisMonth = data.filter((item) => isInCurrentMonth(item.created_at)).length;
 
   return [
-    { title: "活跃客户", value: `${formatNumber(activeCustomers)} 家`, detail: "当前处于合作中或持续跟进中的客户" },
-    { title: "重点跟进", value: `${formatNumber(followUpCustomers)} 家`, detail: "状态为跟进中的客户，适合销售持续推进" },
-    { title: "授信额度", value: formatCurrency(totalCreditLimit), detail: "基于客户档案中的账期或授信额度汇总" },
+    { title: "长期合作", value: `${formatNumber(longTermCustomers)} 家`, detail: "适合持续制定服务标准与合作任务" },
+    { title: "短期合作", value: `${formatNumber(shortTermCustomers)} 家`, detail: "按项目或阶段性需求维护完整档案" },
+    { title: "一次性客户", value: `${formatNumber(oneTimeCustomers)} 家`, detail: "完成后保留资料，未来可随时重新调出" },
     { title: "本月新增", value: `${formatNumber(newThisMonth)} 家`, detail: "按客户建档时间自动统计" },
   ];
 }
@@ -1818,10 +1863,6 @@ export async function getPricingSummaryItems(): Promise<SummaryItem[]> {
 
   const data = await quotes.list({ limit: 200 });
 
-  if (!data.length) {
-    return pricingSummary;
-  }
-
   const pendingQuotes = data.filter((item) => ["draft", "sent"].includes(item.status)).length;
   const createdThisWeek = data.filter((item) => isDateWithinDays(item.created_at, 7)).length;
   const acceptedQuotes = data.filter((item) => item.status === "accepted").length;
@@ -1846,10 +1887,6 @@ export async function getProfitSummaryItems(): Promise<SummaryItem[]> {
   }
 
   const data = await orders.list({ limit: 200 });
-
-  if (!data.length) {
-    return profitSummary;
-  }
 
   const totalRevenue = data.reduce((sum, item) => sum + Number(item.revenue_jpy ?? 0), 0);
   const totalCost = data.reduce((sum, item) => sum + Number(item.total_cost_jpy ?? 0), 0);
@@ -2558,7 +2595,7 @@ function mapVehicleStatusToCode(statusLabel: string) {
 
 function mapCustomerStatus(status: string) {
   const statusMap: Record<string, string> = {
-    active: "长期合作",
+    active: "合作中",
     nurturing: "跟进中",
     settled: "已结清",
     inactive: "已停用",
@@ -2569,6 +2606,7 @@ function mapCustomerStatus(status: string) {
 
 function mapCustomerStatusToCode(statusLabel: string) {
   const statusMap: Record<string, string> = {
+    合作中: "active",
     长期合作: "active",
     跟进中: "nurturing",
     已结清: "settled",
@@ -2576,6 +2614,39 @@ function mapCustomerStatusToCode(statusLabel: string) {
   };
 
   return statusMap[statusLabel] ?? "active";
+}
+
+function mapCustomerType(type: string) {
+  const typeMap: Record<string, string> = {
+    long_term: "长期合作",
+    short_term: "短期合作",
+    one_time: "一次性客户",
+  };
+
+  return typeMap[type] ?? type;
+}
+
+function mapCollaborationTaskStatus(status: string) {
+  const statusMap: Record<string, string> = {
+    todo: "待处理",
+    in_progress: "进行中",
+    waiting: "等待客户",
+    completed: "已完成",
+    cancelled: "已取消",
+  };
+
+  return statusMap[status] ?? status;
+}
+
+function mapCollaborationTaskPriority(priority: string) {
+  const priorityMap: Record<string, string> = {
+    low: "低",
+    normal: "普通",
+    high: "高",
+    urgent: "紧急",
+  };
+
+  return priorityMap[priority] ?? priority;
 }
 
 function mapContractType(contractType: string) {
@@ -2782,6 +2853,22 @@ function buildMockCustomerFollowLogs(seed: number): CustomerFollowLog[] {
       id: `mock-customer-follow-${seed}-2`,
       dateLabel: "2026-05-18",
       note: "客户希望增加中文司机和购物点安排，销售已回传可选方案。",
+    },
+  ];
+}
+
+function buildMockCustomerCollaborationTasks(seed: number): CustomerCollaborationTaskRecord[] {
+  return [
+    {
+      id: `mock-customer-task-${seed}-1`,
+      title: seed % 2 === 0 ? "确认巴士 Wi-Fi 配置" : "准备中文接待资料",
+      description: seed % 2 === 0 ? "确认执行车辆可提供稳定 Wi-Fi，并在出团前回传连接方式。" : "整理中文行程单、集合点地图和紧急联系方式。",
+      status: seed % 2 === 0 ? "in_progress" : "todo",
+      statusLabel: seed % 2 === 0 ? "进行中" : "待处理",
+      priority: "high",
+      priorityLabel: "高",
+      dueOn: "2026-06-18",
+      dueOnLabel: "2026年6月18日",
     },
   ];
 }

@@ -1,18 +1,17 @@
 import { AccessDeniedCard } from "@/components/ui/access-denied-card";
 import { PageIntro } from "@/components/layout/page-intro";
-import { ModuleToolbar } from "@/components/ui/module-toolbar";
 import { ProfitOperationsWorkbench } from "@/components/profit/profit-operations-workbench";
 import { SummaryGrid } from "@/components/ui/summary-grid";
 import { hasPermission } from "@/lib/auth/session";
 import { getDashboardProfitSeries, getProfitOperationsRecords, getProfitSummaryItems } from "@/lib/loaders/admin";
 
 export default async function ProfitPage() {
-  const [records, summaryItems, chartData, canReadProfit, canWriteProfit] = await Promise.all([
+  const [records, summaryItems, chartData, canReadProfit, canMaintainCosts] = await Promise.all([
     getProfitOperationsRecords(),
     getProfitSummaryItems(),
     getDashboardProfitSeries(),
     hasPermission("profit.read"),
-    hasPermission("profit.write"),
+    hasPermission("orders.write"),
   ]);
 
   if (!canReadProfit) {
@@ -29,15 +28,7 @@ export default async function ProfitPage() {
 
       <SummaryGrid items={summaryItems} />
 
-      <ModuleToolbar
-        searchPlaceholder="利润页已切换到真实分析工作台"
-        filters={["盈利中", "正常", "已取消", "本月项目"]}
-        primaryAction="利润基于订单自动汇总"
-        canCreate={canWriteProfit}
-        readOnlyHint="当前角色可查看利润，利润分析以订单与成本明细自动生成"
-      />
-
-      <ProfitOperationsWorkbench records={records} canViewSensitiveMetrics={canReadProfit} chartData={chartData} />
+      <ProfitOperationsWorkbench records={records} canViewSensitiveMetrics={canReadProfit} canMaintainCosts={canMaintainCosts} chartData={chartData} />
     </>
   );
 }

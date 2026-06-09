@@ -97,6 +97,22 @@ export async function updatePaymentReceipt(formData: FormData) {
   redirect("/finance?message=receipt_updated");
 }
 
+export async function deletePaymentReceipt(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+  if (!canWriteFinance) redirect("/finance?error=not_allowed");
+  if (!isSupabaseConfigured()) redirect("/finance?error=preview_mode");
+
+  const receiptId = String(formData.get("receiptId") ?? "").trim();
+  if (!receiptId) redirect("/finance?error=missing_fields");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("payment_receipts").delete().eq("id", receiptId);
+  if (error) redirect(`/finance?error=delete_failed&detail=${encodeURIComponent(error.message)}`);
+
+  revalidateFinance();
+  redirect("/finance?message=receipt_deleted");
+}
+
 export async function createSupplierPayment(formData: FormData) {
   const canWriteFinance = await hasPermission("finance.write");
 
@@ -156,6 +172,22 @@ export async function updateSupplierPayment(formData: FormData) {
 
   revalidateFinance();
   redirect("/finance?message=supplier_payment_updated");
+}
+
+export async function deleteSupplierPayment(formData: FormData) {
+  const canWriteFinance = await hasPermission("finance.write");
+  if (!canWriteFinance) redirect("/finance?error=not_allowed");
+  if (!isSupabaseConfigured()) redirect("/finance?error=preview_mode");
+
+  const paymentId = String(formData.get("paymentId") ?? "").trim();
+  if (!paymentId) redirect("/finance?error=missing_fields");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("supplier_payments").delete().eq("id", paymentId);
+  if (error) redirect(`/finance?error=supplier_delete_failed&detail=${encodeURIComponent(error.message)}`);
+
+  revalidateFinance();
+  redirect("/finance?message=supplier_payment_deleted");
 }
 
 function readPaymentReceiptPayload(formData: FormData):

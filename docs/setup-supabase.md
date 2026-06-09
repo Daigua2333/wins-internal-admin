@@ -27,6 +27,8 @@
 - `orders` 归档字段：`archived_at`、`archive_code`、`archive_summary`、`archive_keywords`
 - 订单归档检索索引：归档编号、归档时间、归档订单服务日期
 - 财务回款与供应商付款表
+- 客户字段：长期 / 短期 / 一次性分类、公司介绍、微信、LINE
+- `customer_collaboration_tasks` 客户合作需求与任务进度表
 - 司机档案字段：微信、LINE、月出勤天数、自定义颜色、默认车辆
 - `driver_incidents` 司机事故安全记录表与对应 RLS 策略
 
@@ -34,6 +36,7 @@
 
 - `profiles`
 - `customers`
+- `customer_collaboration_tasks`
 - `vehicles`
 - `drivers`
 - `driver_incidents`
@@ -47,6 +50,7 @@
 然后 `seed.sql` 会插入一批可用于演示的数据：
 
 - 客户
+- 客户合作需求任务
 - 车辆
 - 司机
 - 导游
@@ -105,7 +109,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 - 系统设置页中的 Supabase 状态区显示已启用
 - 系统设置页中的连接健康检查区会显示“Supabase 会话已生效”
 - Dashboard 和业务页开始尝试读取真实数据
-- 如果真实表为空，部分页面可能显示空数据或继续 fallback
+- 如果真实表为空，已落地的真实业务工作台会显示空状态或真实零值，不会混入演示数字
 
 ## 7. 推荐接下来的动作
 

@@ -119,6 +119,29 @@ export async function updateQuotationStatus(formData: FormData) {
   redirect("/pricing?message=quotation_status_updated");
 }
 
+export async function deleteQuotation(formData: FormData) {
+  const canWriteQuotations = await hasPermission("quotations.write");
+
+  if (!canWriteQuotations) redirect("/pricing?error=not_allowed");
+  if (!isSupabaseConfigured()) redirect("/pricing?error=preview_mode");
+
+  const quotationId = String(formData.get("quotationId") ?? "").trim();
+  if (!quotationId) redirect("/pricing?error=missing_fields");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("quotations").delete().eq("id", quotationId);
+
+  if (error) {
+    console.error("[pricing:delete]", error.message);
+    redirect(`/pricing?error=delete_failed&detail=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/pricing");
+  revalidatePath("/customers");
+  revalidatePath("/dashboard");
+  redirect("/pricing?message=quotation_deleted");
+}
+
 export async function convertQuotationToOrder(formData: FormData) {
   const canWriteOrders = await hasPermission("orders.write");
 

@@ -1,5 +1,6 @@
 import type {
   CustomerStatus,
+  CustomerType,
   OrderStatus,
   QuoteStatus,
   VehicleStatus,
@@ -47,9 +48,13 @@ export type Database = {
         Row: {
           id: string;
           company_name: string;
+          customer_type: CustomerType;
+          company_profile: string | null;
           contact_name: string;
           contact_email: string | null;
           contact_phone: string | null;
+          wechat_id: string | null;
+          line_id: string | null;
           market_segment: string;
           billing_terms: string | null;
           credit_limit_jpy: number | null;
@@ -61,9 +66,13 @@ export type Database = {
         Insert: {
           id?: string;
           company_name: string;
+          customer_type?: CustomerType;
+          company_profile?: string | null;
           contact_name: string;
           contact_email?: string | null;
           contact_phone?: string | null;
+          wechat_id?: string | null;
+          line_id?: string | null;
           market_segment: string;
           billing_terms?: string | null;
           credit_limit_jpy?: number | null;
@@ -72,14 +81,49 @@ export type Database = {
         };
         Update: {
           company_name?: string;
+          customer_type?: CustomerType;
+          company_profile?: string | null;
           contact_name?: string;
           contact_email?: string | null;
           contact_phone?: string | null;
+          wechat_id?: string | null;
+          line_id?: string | null;
           market_segment?: string;
           billing_terms?: string | null;
           credit_limit_jpy?: number | null;
           status?: CustomerStatus;
           notes?: string | null;
+        };
+        Relationships: [];
+      };
+      customer_collaboration_tasks: {
+        Row: {
+          id: string;
+          customer_id: string;
+          title: string;
+          description: string | null;
+          status: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
+          priority: "low" | "normal" | "high" | "urgent";
+          due_on: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          customer_id: string;
+          title: string;
+          description?: string | null;
+          status?: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
+          priority?: "low" | "normal" | "high" | "urgent";
+          due_on?: string | null;
+        };
+        Update: {
+          customer_id?: string;
+          title?: string;
+          description?: string | null;
+          status?: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
+          priority?: "low" | "normal" | "high" | "urgent";
+          due_on?: string | null;
         };
         Relationships: [];
       };

@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 
-import { createPaymentReceipt, createSupplierPayment, updatePaymentReceipt, updateSupplierPayment } from "@/app/(dashboard)/finance/actions";
+import { createPaymentReceipt, createSupplierPayment, deletePaymentReceipt, deleteSupplierPayment, updatePaymentReceipt, updateSupplierPayment } from "@/app/(dashboard)/finance/actions";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmActionButton } from "@/components/ui/confirm-action-button";
 import { DataTable } from "@/components/ui/data-table";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyStateCard } from "@/components/ui/empty-state-card";
@@ -506,6 +508,9 @@ export function FinanceOperationsWorkbench({
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Selected Customer</p>
                 <p className="mt-2 text-xl font-semibold tracking-tight text-slate-900">{selectedStatement.customerName}</p>
+                <Link href={`/customers/${selectedStatement.customerId}`} className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:text-cyan-700">
+                  打开客户档案
+                </Link>
                 <div className="mt-3">
                   <StatStrip
                     items={[
@@ -571,6 +576,7 @@ export function FinanceOperationsWorkbench({
 
                 <div>
                   {selectedReceipt ? (
+                    <div className="space-y-3">
                     <form action={updatePaymentReceipt} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
                       <input type="hidden" name="receiptId" value={selectedReceipt.id} />
 
@@ -696,6 +702,13 @@ export function FinanceOperationsWorkbench({
                         保存回款记录
                       </PendingSubmitButton>
                     </form>
+                    <form id={`delete-receipt-${selectedReceipt.id}`} action={deletePaymentReceipt}>
+                      <input type="hidden" name="receiptId" value={selectedReceipt.id} />
+                    </form>
+                    <div className="flex justify-end">
+                      <ConfirmActionButton formId={`delete-receipt-${selectedReceipt.id}`} title="确认删除这条回款记录？" description="删除后应收余额会重新计算，请仅用于修正错误流水。" confirmLabel="确认删除" disabled={!canWriteFinance}>删除错误回款</ConfirmActionButton>
+                    </div>
+                    </div>
                   ) : (
                     <EmptyStateCard title="还没有回款流水" description="先在上方登记第一笔回款，这里就会开始显示到账状态、方式和备注。" />
                   )}
@@ -730,6 +743,7 @@ export function FinanceOperationsWorkbench({
           />
 
           {selectedSupplierPayment ? (
+            <div className="space-y-3">
             <form action={updateSupplierPayment} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
               <input type="hidden" name="paymentId" value={selectedSupplierPayment.id} />
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -883,6 +897,13 @@ export function FinanceOperationsWorkbench({
                 保存付款记录
               </PendingSubmitButton>
             </form>
+            <form id={`delete-supplier-payment-${selectedSupplierPayment.id}`} action={deleteSupplierPayment}>
+              <input type="hidden" name="paymentId" value={selectedSupplierPayment.id} />
+            </form>
+            <div className="flex justify-end">
+              <ConfirmActionButton formId={`delete-supplier-payment-${selectedSupplierPayment.id}`} title="确认删除这条供应商付款？" description="删除后净现金流会重新计算，请仅用于修正错误付款记录。" confirmLabel="确认删除" disabled={!canWriteFinance}>删除错误付款</ConfirmActionButton>
+            </div>
+            </div>
           ) : (
             <EmptyStateCard title="还没有供应商付款记录" description="先从上方登记第一笔付款，这里就会开始显示供应商、金额、状态和流水号。" />
           )}
