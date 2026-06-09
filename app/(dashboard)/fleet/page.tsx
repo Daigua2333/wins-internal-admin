@@ -3,8 +3,9 @@ import { DashboardToast } from "@/components/ui/dashboard-toast";
 import { PageIntro } from "@/components/layout/page-intro";
 import { SummaryGrid } from "@/components/ui/summary-grid";
 import { VehicleOperationsWorkbench } from "@/components/fleet/vehicle-operations-workbench";
+import { DriverScheduleStudio } from "@/components/drivers/driver-schedule-studio";
 import { hasPermission } from "@/lib/auth/session";
-import { getFleetSummaryItems, getVehicleOperationsRecords } from "@/lib/loaders/admin";
+import { getDriverScheduleSnapshot, getFleetSummaryItems, getVehicleOperationsRecords } from "@/lib/loaders/admin";
 
 type FleetPageProps = {
   searchParams?: Promise<{
@@ -13,16 +14,19 @@ type FleetPageProps = {
     detail?: string;
     query?: string;
     status?: string;
+    month?: string;
   }>;
 };
 
 export default async function FleetPage({ searchParams }: FleetPageProps) {
   const params = (await searchParams) ?? {};
-  const [records, summaryItems, canReadVehicles, canWriteVehicles] = await Promise.all([
+  const [records, summaryItems, scheduleSnapshot, canReadVehicles, canWriteVehicles, canWriteOrders] = await Promise.all([
     getVehicleOperationsRecords(),
     getFleetSummaryItems(),
+    getDriverScheduleSnapshot(params.month),
     hasPermission("vehicles.read"),
     hasPermission("vehicles.write"),
+    hasPermission("orders.write"),
   ]);
 
   if (!canReadVehicles) {
@@ -36,7 +40,7 @@ export default async function FleetPage({ searchParams }: FleetPageProps) {
       <PageIntro
         eyebrow="Fleet Management"
         title="车辆管理模块"
-        description="维护自有车辆与合作车队信息，跟踪可用状态、点检日期和运营状态，为调度模块提供即时资源视图。"
+        description="维护自有车辆与合作车队信息，并通过月度司机排班查看每天由哪位司机驾驶哪台车执行哪条线路。"
       />
 
       <DashboardToast feedback={feedback} />
@@ -49,6 +53,8 @@ export default async function FleetPage({ searchParams }: FleetPageProps) {
         initialQuery={params.query}
         initialFilter={params.status}
       />
+
+      <DriverScheduleStudio snapshot={scheduleSnapshot} canManageMatching={canWriteOrders} redirectTo="/fleet" />
     </>
   );
 }
@@ -83,6 +89,14 @@ function getFleetFeedback(params: { message?: string; error?: string; detail?: s
       type: "success" as const,
       message: "车辆已删除。",
       detail: "车辆台账已更新，相关订单里的车辆引用也会同步清空。",
+    };
+  }
+
+  if (params.message === "driver_vehicle_matched") {
+    return {
+      type: "success" as const,
+      message: "司机与车辆匹配已更新。",
+      detail: "车辆月度排班、司机视图和订单调度信息已经同步刷新。",
     };
   }
 
@@ -165,6 +179,22 @@ function getFleetFeedback(params: { message?: string; error?: string; detail?: s
       type: "error" as const,
       message: "车辆删除失败。",
       detail: params.detail ? decodeURIComponent(params.detail) : "请确认 vehicles 表删除策略已经在 Supabase 生效。",
+    };
+  }
+
+  if (params.error === "driver_vehicle_conflict") {
+    return {
+      type: "error" as const,
+      message: "司机与车辆匹配存在冲突。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "同一天的司机或车辆已经被其他订单占用。",
+    };
+  }
+
+  if (params.error === "match_update_failed") {
+    return {
+      type: "error" as const,
+      message: "司机与车辆匹配保存失败。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "请检查订单更新权限和司机、车辆数据。",
     };
   }
 

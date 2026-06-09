@@ -128,6 +128,11 @@ export type Database = {
           languages: string[];
           contract_type: "full_time" | "part_time" | "partner";
           phone: string | null;
+          wechat_id: string | null;
+          line_id: string | null;
+          attendance_days_monthly: number;
+          display_color: string;
+          default_vehicle_id: string | null;
           duty_hours_monthly: number;
           safety_score: number;
           status: StaffStatus;
@@ -142,6 +147,11 @@ export type Database = {
           languages?: string[];
           contract_type: "full_time" | "part_time" | "partner";
           phone?: string | null;
+          wechat_id?: string | null;
+          line_id?: string | null;
+          attendance_days_monthly?: number;
+          display_color?: string;
+          default_vehicle_id?: string | null;
           duty_hours_monthly?: number;
           safety_score?: number;
           status?: StaffStatus;
@@ -153,10 +163,49 @@ export type Database = {
           languages?: string[];
           contract_type?: "full_time" | "part_time" | "partner";
           phone?: string | null;
+          wechat_id?: string | null;
+          line_id?: string | null;
+          attendance_days_monthly?: number;
+          display_color?: string;
+          default_vehicle_id?: string | null;
           duty_hours_monthly?: number;
           safety_score?: number;
           status?: StaffStatus;
           notes?: string | null;
+        };
+        Relationships: [];
+      };
+      driver_incidents: {
+        Row: {
+          id: string;
+          driver_id: string;
+          order_id: string | null;
+          occurred_on: string;
+          severity: "minor" | "major" | "critical";
+          title: string;
+          description: string;
+          status: "open" | "reviewed" | "closed";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          driver_id: string;
+          order_id?: string | null;
+          occurred_on: string;
+          severity?: "minor" | "major" | "critical";
+          title: string;
+          description: string;
+          status?: "open" | "reviewed" | "closed";
+        };
+        Update: {
+          driver_id?: string;
+          order_id?: string | null;
+          occurred_on?: string;
+          severity?: "minor" | "major" | "critical";
+          title?: string;
+          description?: string;
+          status?: "open" | "reviewed" | "closed";
         };
         Relationships: [];
       };

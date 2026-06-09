@@ -27,6 +27,8 @@
 - `orders` 归档字段：`archived_at`、`archive_code`、`archive_summary`、`archive_keywords`
 - 订单归档检索索引：归档编号、归档时间、归档订单服务日期
 - 财务回款与供应商付款表
+- 司机档案字段：微信、LINE、月出勤天数、自定义颜色、默认车辆
+- `driver_incidents` 司机事故安全记录表与对应 RLS 策略
 
 执行后将创建：
 
@@ -34,6 +36,7 @@
 - `customers`
 - `vehicles`
 - `drivers`
+- `driver_incidents`
 - `guides`
 - `quotations`
 - `orders`
@@ -51,6 +54,7 @@
 - 订单
 - 归档订单样例
 - 成本、回款和供应商付款样例
+- 司机默认车辆、颜色与事故记录样例
 
 ## 3. 配置环境变量
 

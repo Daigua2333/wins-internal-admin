@@ -94,6 +94,11 @@ create table if not exists public.drivers (
   languages text[] not null default '{}',
   contract_type text not null check (contract_type in ('full_time', 'part_time', 'partner')),
   phone text,
+  wechat_id text,
+  line_id text,
+  attendance_days_monthly integer not null default 0 check (attendance_days_monthly >= 0),
+  display_color text not null default '#0f766e',
+  default_vehicle_id uuid references public.vehicles(id) on delete set null,
   duty_hours_monthly numeric(6, 2) not null default 0,
   safety_score numeric(5, 2) not null default 100,
   status text not null default 'available' check (status in ('available', 'assigned', 'off_duty', 'inactive')),
@@ -101,6 +106,12 @@ create table if not exists public.drivers (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.drivers add column if not exists wechat_id text;
+alter table public.drivers add column if not exists line_id text;
+alter table public.drivers add column if not exists attendance_days_monthly integer not null default 0;
+alter table public.drivers add column if not exists display_color text not null default '#0f766e';
+alter table public.drivers add column if not exists default_vehicle_id uuid references public.vehicles(id) on delete set null;
 
 create table if not exists public.guides (
   id uuid primary key default gen_random_uuid(),
@@ -184,6 +195,19 @@ alter table public.orders add column if not exists archive_code text;
 alter table public.orders add column if not exists archive_summary text;
 alter table public.orders add column if not exists archive_keywords text;
 
+create table if not exists public.driver_incidents (
+  id uuid primary key default gen_random_uuid(),
+  driver_id uuid not null references public.drivers(id) on delete cascade,
+  order_id uuid references public.orders(id) on delete set null,
+  occurred_on date not null,
+  severity text not null default 'minor' check (severity in ('minor', 'major', 'critical')),
+  title text not null,
+  description text not null,
+  status text not null default 'open' check (status in ('open', 'reviewed', 'closed')),
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.trip_costs (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
@@ -230,6 +254,9 @@ create index if not exists idx_orders_service_date on public.orders(service_date
 create unique index if not exists idx_orders_archive_code on public.orders(archive_code) where archive_code is not null;
 create index if not exists idx_orders_archived_at on public.orders(archived_at) where archived_at is not null;
 create index if not exists idx_orders_archive_service_date on public.orders(service_date) where archived_at is not null;
+create unique index if not exists idx_drivers_unique_default_vehicle_id on public.drivers(default_vehicle_id) where default_vehicle_id is not null;
+create index if not exists idx_driver_incidents_driver_id on public.driver_incidents(driver_id);
+create index if not exists idx_driver_incidents_occurred_on on public.driver_incidents(occurred_on);
 create index if not exists idx_quotations_customer_id on public.quotations(customer_id);
 create index if not exists idx_trip_costs_order_id on public.trip_costs(order_id);
 create index if not exists idx_payment_receipts_order_id on public.payment_receipts(order_id);
@@ -246,6 +273,8 @@ drop trigger if exists set_vehicles_updated_at on public.vehicles;
 create trigger set_vehicles_updated_at before update on public.vehicles for each row execute function public.set_updated_at();
 drop trigger if exists set_drivers_updated_at on public.drivers;
 create trigger set_drivers_updated_at before update on public.drivers for each row execute function public.set_updated_at();
+drop trigger if exists set_driver_incidents_updated_at on public.driver_incidents;
+create trigger set_driver_incidents_updated_at before update on public.driver_incidents for each row execute function public.set_updated_at();
 drop trigger if exists set_guides_updated_at on public.guides;
 create trigger set_guides_updated_at before update on public.guides for each row execute function public.set_updated_at();
 drop trigger if exists set_app_settings_updated_at on public.app_settings;
@@ -265,6 +294,7 @@ alter table public.profiles enable row level security;
 alter table public.customers enable row level security;
 alter table public.vehicles enable row level security;
 alter table public.drivers enable row level security;
+alter table public.driver_incidents enable row level security;
 alter table public.guides enable row level security;
 alter table public.app_settings enable row level security;
 alter table public.quotations enable row level security;
@@ -288,6 +318,10 @@ drop policy if exists "authenticated_read_drivers" on public.drivers;
 drop policy if exists "role_write_drivers" on public.drivers;
 drop policy if exists "role_update_drivers" on public.drivers;
 drop policy if exists "role_delete_drivers" on public.drivers;
+drop policy if exists "authenticated_read_driver_incidents" on public.driver_incidents;
+drop policy if exists "role_write_driver_incidents" on public.driver_incidents;
+drop policy if exists "role_update_driver_incidents" on public.driver_incidents;
+drop policy if exists "role_delete_driver_incidents" on public.driver_incidents;
 drop policy if exists "authenticated_read_guides" on public.guides;
 drop policy if exists "role_write_guides" on public.guides;
 drop policy if exists "role_update_guides" on public.guides;
@@ -330,6 +364,10 @@ create policy "authenticated_read_drivers" on public.drivers for select to authe
 create policy "role_write_drivers" on public.drivers for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_drivers" on public.drivers for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_drivers" on public.drivers for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
+create policy "authenticated_read_driver_incidents" on public.driver_incidents for select to authenticated using (true);
+create policy "role_write_driver_incidents" on public.driver_incidents for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
+create policy "role_update_driver_incidents" on public.driver_incidents for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
+create policy "role_delete_driver_incidents" on public.driver_incidents for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "authenticated_read_guides" on public.guides for select to authenticated using (true);
 create policy "role_write_guides" on public.guides for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_guides" on public.guides for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));

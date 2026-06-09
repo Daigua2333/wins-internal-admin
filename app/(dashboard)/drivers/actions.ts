@@ -30,6 +30,9 @@ export async function createDriver(formData: FormData) {
 
   if (error) {
     console.error("[drivers:create]", error.message);
+    if (isDefaultVehicleConflict(error.message)) {
+      redirect("/drivers?error=default_vehicle_in_use");
+    }
     redirect(`/drivers?error=create_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
@@ -65,6 +68,9 @@ export async function updateDriverBasics(formData: FormData) {
 
   if (error) {
     console.error("[drivers:update-basics]", error.message);
+    if (isDefaultVehicleConflict(error.message)) {
+      redirect("/drivers?error=default_vehicle_in_use");
+    }
     redirect(`/drivers?error=update_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
@@ -113,66 +119,7 @@ export async function updateDriverStatus(formData: FormData) {
   redirect("/drivers?message=driver_status_updated");
 }
 
-export async function recordDriverSafetyScore(formData: FormData) {
-  const canWriteDrivers = await hasPermission("drivers.write");
-
-  if (!canWriteDrivers) {
-    redirect("/drivers?error=not_allowed");
-  }
-
-  if (!isSupabaseConfigured()) {
-    redirect("/drivers?error=preview_mode");
-  }
-
-  const driverId = String(formData.get("driverId") ?? "").trim();
-  const scoreInput = String(formData.get("score") ?? "").trim();
-  const note = String(formData.get("note") ?? "").trim();
-
-  if (!driverId || !scoreInput || !note) {
-    redirect("/drivers?error=missing_safety_fields");
-  }
-
-  const score = Number(scoreInput);
-  if (Number.isNaN(score) || score < 0 || score > 100) {
-    redirect("/drivers?error=invalid_safety_score");
-  }
-
-  const supabase = await createClient();
-  const { data: existingDriver, error: fetchError } = await supabase
-    .from("drivers")
-    .select("notes")
-    .eq("id", driverId)
-    .maybeSingle();
-
-  if (fetchError) {
-    console.error("[drivers:fetch-safety]", fetchError.message);
-    redirect(`/drivers?error=safety_record_failed&detail=${encodeURIComponent(fetchError.message)}`);
-  }
-
-  const currentDate = new Date().toISOString().slice(0, 10);
-  const newLine = `[safety][${currentDate}][score:${score}] ${note}`;
-  const existingNotes = String((existingDriver as { notes: string | null } | null)?.notes ?? "").trim();
-  const mergedNotes = existingNotes ? `${newLine}\n${existingNotes}` : newLine;
-
-  const { error } = await supabase
-    .from("drivers")
-    .update({
-      safety_score: score,
-      notes: mergedNotes,
-    } as never)
-    .eq("id", driverId);
-
-  if (error) {
-    console.error("[drivers:record-safety]", error.message);
-    redirect(`/drivers?error=safety_record_failed&detail=${encodeURIComponent(error.message)}`);
-  }
-
-  revalidatePath("/drivers");
-  revalidatePath("/dashboard");
-  redirect("/drivers?message=safety_recorded");
-}
-
-export async function assignDriverSchedule(formData: FormData) {
+export async function recordDriverIncident(formData: FormData) {
   const canWriteDrivers = await hasPermission("drivers.write");
 
   if (!canWriteDrivers) {
@@ -185,47 +132,99 @@ export async function assignDriverSchedule(formData: FormData) {
 
   const driverId = String(formData.get("driverId") ?? "").trim();
   const orderId = String(formData.get("orderId") ?? "").trim();
+  const occurredOn = String(formData.get("occurredOn") ?? "").trim();
+  const severity = String(formData.get("severity") ?? "minor").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
 
-  if (!driverId || !orderId) {
-    redirect("/drivers?error=missing_schedule_fields");
+  if (!driverId || !occurredOn || !title || !description) {
+    redirect("/drivers?error=missing_incident_fields");
+  }
+
+  if (!["minor", "major", "critical"].includes(severity)) {
+    redirect("/drivers?error=invalid_incident_severity");
   }
 
   const supabase = await createClient();
-  const operationsPolicy = await getOperationsPolicySettings();
-  const conflictMessage = await findDriverScheduleConflict(supabase, { driverId, orderId });
-
-  if (conflictMessage && operationsPolicy.conflictStrictMode) {
-    redirect(`/drivers?error=driver_schedule_conflict&detail=${encodeURIComponent(conflictMessage)}`);
-  }
-
-  const { data: currentOrder } = await supabase
-    .from("orders")
-    .select("status")
-    .eq("id", orderId)
-    .maybeSingle();
-
-  const currentStatus = (currentOrder as { status: string } | null)?.status;
-  const nextStatus =
-    operationsPolicy.autoMarkScheduledOnAssignment && (currentStatus === "pending_confirmation" || currentStatus === "draft")
-      ? "scheduled"
-      : undefined;
-
-  const payload: Database["public"]["Tables"]["orders"]["Update"] = {
+  const payload: Database["public"]["Tables"]["driver_incidents"]["Insert"] = {
     driver_id: driverId,
-    ...(nextStatus ? { status: nextStatus as Database["public"]["Tables"]["orders"]["Update"]["status"] } : {}),
+    order_id: orderId || null,
+    occurred_on: occurredOn,
+    severity: severity as Database["public"]["Tables"]["driver_incidents"]["Insert"]["severity"],
+    title,
+    description,
+    status: "open",
   };
-
-  const { error } = await supabase.from("orders").update(payload as never).eq("id", orderId);
+  const { error } = await supabase.from("driver_incidents").insert(payload as never);
 
   if (error) {
-    console.error("[drivers:assign-schedule]", error.message);
-    redirect(`/drivers?error=schedule_assign_failed&detail=${encodeURIComponent(error.message)}`);
+    console.error("[drivers:record-incident]", error.message);
+    redirect(`/drivers?error=incident_record_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
   revalidatePath("/drivers");
-  revalidatePath("/orders");
   revalidatePath("/dashboard");
-  redirect("/drivers?message=driver_schedule_assigned");
+  redirect("/drivers?message=incident_recorded");
+}
+
+export async function updateDriverVehicleMatch(formData: FormData) {
+  const canWriteOrders = await hasPermission("orders.write");
+  const redirectTo = resolveRedirectPath(formData);
+
+  if (!canWriteOrders) {
+    redirect(addRedirectParams(redirectTo, "error=not_allowed"));
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect(addRedirectParams(redirectTo, "error=preview_mode"));
+  }
+
+  const orderId = String(formData.get("orderId") ?? "").trim();
+  const driverId = String(formData.get("driverId") ?? "").trim();
+  let vehicleId = String(formData.get("vehicleId") ?? "").trim();
+
+  if (!orderId) {
+    redirect(addRedirectParams(redirectTo, "error=missing_match_fields"));
+  }
+
+  const supabase = await createClient();
+
+  if (driverId && !vehicleId) {
+    const { data: driver } = await supabase.from("drivers").select("default_vehicle_id").eq("id", driverId).maybeSingle();
+    vehicleId = String((driver as { default_vehicle_id: string | null } | null)?.default_vehicle_id ?? "");
+  }
+
+  const conflictMessage = await findDriverVehicleConflict(supabase, { orderId, driverId: driverId || null, vehicleId: vehicleId || null });
+  const operationsPolicy = await getOperationsPolicySettings();
+
+  if (conflictMessage && operationsPolicy.conflictStrictMode) {
+    redirect(addRedirectParams(redirectTo, `error=driver_vehicle_conflict&detail=${encodeURIComponent(conflictMessage)}`));
+  }
+
+  const { data: currentOrder } = await supabase.from("orders").select("status").eq("id", orderId).maybeSingle();
+  const currentStatus = (currentOrder as { status: string } | null)?.status;
+  const nextStatus =
+    operationsPolicy.autoMarkScheduledOnAssignment &&
+    (currentStatus === "pending_confirmation" || currentStatus === "draft") &&
+    (driverId || vehicleId)
+      ? "scheduled"
+      : undefined;
+  const { error } = await supabase
+    .from("orders")
+    .update({ driver_id: driverId || null, vehicle_id: vehicleId || null, ...(nextStatus ? { status: nextStatus } : {}) } as never)
+    .eq("id", orderId);
+
+  if (error) {
+    console.error("[drivers:update-driver-vehicle-match]", error.message);
+    redirect(addRedirectParams(redirectTo, `error=match_update_failed&detail=${encodeURIComponent(error.message)}`));
+  }
+
+  revalidatePath("/drivers");
+  revalidatePath("/fleet");
+  revalidatePath("/orders");
+  revalidatePath("/calendar");
+  revalidatePath("/dashboard");
+  redirect(addRedirectParams(redirectTo, "message=driver_vehicle_matched"));
 }
 
 export async function deleteDriver(formData: FormData) {
@@ -267,24 +266,26 @@ function readDriverPayload(formData: FormData):
   const languagesInput = String(formData.get("languages") ?? "").trim();
   const contractType = String(formData.get("contractType") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
-  const dutyHoursInput = String(formData.get("dutyHoursMonthly") ?? "").trim();
-  const safetyScoreInput = String(formData.get("safetyScore") ?? "").trim();
+  const wechatId = String(formData.get("wechatId") ?? "").trim();
+  const lineId = String(formData.get("lineId") ?? "").trim();
+  const attendanceDaysInput = String(formData.get("attendanceDaysMonthly") ?? "").trim();
+  const displayColor = String(formData.get("displayColor") ?? "#0f766e").trim();
+  const defaultVehicleId = String(formData.get("defaultVehicleId") ?? "").trim();
   const status = String(formData.get("status") ?? "available").trim();
   const notes = String(formData.get("notes") ?? "").trim();
 
-  if (!fullName || !languagesInput || !contractType || !dutyHoursInput || !safetyScoreInput || !status) {
+  if (!fullName || !languagesInput || !contractType || !attendanceDaysInput || !status) {
     return { error: "missing_fields" };
   }
 
-  const dutyHoursMonthly = Number(dutyHoursInput);
-  const safetyScore = Number(safetyScoreInput);
+  const attendanceDaysMonthly = Number(attendanceDaysInput);
 
-  if (Number.isNaN(dutyHoursMonthly) || dutyHoursMonthly < 0) {
-    return { error: "invalid_duty_hours" };
+  if (Number.isNaN(attendanceDaysMonthly) || attendanceDaysMonthly < 0 || !Number.isInteger(attendanceDaysMonthly)) {
+    return { error: "invalid_attendance_days" };
   }
 
-  if (Number.isNaN(safetyScore) || safetyScore < 0 || safetyScore > 100) {
-    return { error: "invalid_safety_score" };
+  if (!/^#[0-9a-fA-F]{6}$/.test(displayColor)) {
+    return { error: "invalid_display_color" };
   }
 
   if (!["full_time", "part_time", "partner"].includes(contractType)) {
@@ -309,47 +310,54 @@ function readDriverPayload(formData: FormData):
     languages,
     contract_type: contractType as Database["public"]["Tables"]["drivers"]["Insert"]["contract_type"],
     phone: phone || null,
-    duty_hours_monthly: dutyHoursMonthly,
-    safety_score: safetyScore,
+    wechat_id: wechatId || null,
+    line_id: lineId || null,
+    attendance_days_monthly: attendanceDaysMonthly,
+    display_color: displayColor,
+    default_vehicle_id: defaultVehicleId || null,
     status: status as Database["public"]["Tables"]["drivers"]["Insert"]["status"],
     notes: notes || null,
   };
 }
 
-async function findDriverScheduleConflict(
+async function findDriverVehicleConflict(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  input: { driverId: string; orderId: string },
+  input: { orderId: string; driverId: string | null; vehicleId: string | null },
 ) {
-  const { data: order, error: orderError } = await supabase
+  const { data: order, error } = await supabase.from("orders").select("service_date").eq("id", input.orderId).maybeSingle();
+
+  if (error) return error.message;
+
+  const serviceDate = (order as { service_date: string | null } | null)?.service_date;
+  if (!serviceDate) return "请先为订单设置服务日期，再匹配司机和车辆。";
+
+  const { data: matches, error: matchError } = await supabase
     .from("orders")
-    .select("service_date")
-    .eq("id", input.orderId)
-    .maybeSingle();
-
-  if (orderError) {
-    return orderError.message;
-  }
-
-  const orderRow = order as { service_date: string | null } | null;
-
-  if (!orderRow?.service_date) {
-    return "请先为订单设置服务日期，再安排司机排班。";
-  }
-
-  const { data: conflicts, error: conflictError } = await supabase
-    .from("orders")
-    .select("order_no, title")
-    .eq("service_date", orderRow.service_date)
-    .eq("driver_id", input.driverId)
+    .select("order_no,title,driver_id,vehicle_id")
+    .eq("service_date", serviceDate)
     .neq("id", input.orderId)
-    .neq("status", "cancelled")
-    .limit(1);
+    .neq("status", "cancelled");
 
-  if (conflictError) {
-    return conflictError.message;
+  if (matchError) return matchError.message;
+
+  const conflicts: string[] = [];
+  for (const match of (matches as Array<{ order_no: string; title: string; driver_id: string | null; vehicle_id: string | null }> | null) ?? []) {
+    if (input.driverId && match.driver_id === input.driverId) conflicts.push(`司机已安排到 ${match.order_no}（${match.title}）`);
+    if (input.vehicleId && match.vehicle_id === input.vehicleId) conflicts.push(`车辆已安排到 ${match.order_no}（${match.title}）`);
   }
 
-  const conflict = (conflicts as Array<{ order_no: string; title: string }> | null)?.[0];
+  return conflicts.length ? `${serviceDate} 存在匹配冲突：${conflicts.join("；")}。` : null;
+}
 
-  return conflict ? `${orderRow.service_date} 这天该司机已被订单 ${conflict.order_no}（${conflict.title}）占用。` : null;
+function resolveRedirectPath(formData: FormData) {
+  const redirectTo = String(formData.get("redirectTo") ?? "/drivers").trim();
+  return redirectTo.startsWith("/") ? redirectTo : "/drivers";
+}
+
+function addRedirectParams(path: string, params: string) {
+  return `${path}${path.includes("?") ? "&" : "?"}${params}`;
+}
+
+function isDefaultVehicleConflict(message: string) {
+  return message.includes("idx_drivers_unique_default_vehicle_id") || message.includes("drivers_default_vehicle_id");
 }

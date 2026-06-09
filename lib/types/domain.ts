@@ -55,10 +55,26 @@ export type Driver = TimestampFields & {
   languages: string[];
   contract_type: "full_time" | "part_time" | "partner";
   phone: string | null;
+  wechat_id: string | null;
+  line_id: string | null;
+  attendance_days_monthly: number;
+  display_color: string;
+  default_vehicle_id: string | null;
   duty_hours_monthly: number;
   safety_score: number;
   status: StaffStatus;
   notes: string | null;
+};
+
+export type DriverIncident = TimestampFields & {
+  id: string;
+  driver_id: string;
+  order_id: string | null;
+  occurred_on: string;
+  severity: "minor" | "major" | "critical";
+  title: string;
+  description: string;
+  status: "open" | "reviewed" | "closed";
 };
 
 export type Guide = TimestampFields & {

@@ -10,6 +10,7 @@ begin;
 delete from public.supplier_payments;
 delete from public.payment_receipts;
 delete from public.trip_costs;
+delete from public.driver_incidents;
 delete from public.orders;
 delete from public.quotations;
 delete from public.guides;
@@ -152,6 +153,11 @@ insert into public.drivers (
   languages,
   contract_type,
   phone,
+  wechat_id,
+  line_id,
+  attendance_days_monthly,
+  display_color,
+  default_vehicle_id,
   duty_hours_monthly,
   safety_score,
   status,
@@ -163,6 +169,11 @@ values
     array['日语', '中文'],
     'full_time',
     '+81-90-3200-8821',
+    'wins_tanaka',
+    null,
+    12,
+    '#0f766e',
+    (select id from public.vehicles where plate_number = '品川300 あ 88-21' limit 1),
     142,
     98,
     'assigned',
@@ -173,6 +184,11 @@ values
     array['日语', '英语'],
     'full_time',
     '+81-90-5143-1200',
+    null,
+    'wins.ito',
+    8,
+    '#2563eb',
+    (select id from public.vehicles where plate_number = '足立500 さ 12-43' limit 1),
     126,
     95,
     'off_duty',
@@ -183,6 +199,11 @@ values
     array['日语', '中文'],
     'part_time',
     '+81-90-7651-4450',
+    'wins_suzuki',
+    null,
+    10,
+    '#d97706',
+    (select id from public.vehicles where plate_number = '練馬330 す 45-18' limit 1),
     94,
     96,
     'available',
@@ -193,6 +214,11 @@ values
     array['日语', '中文', '英语'],
     'partner',
     '+81-90-8833-2010',
+    null,
+    'wins.yamamoto',
+    11,
+    '#be123c',
+    (select id from public.vehicles where plate_number = '横浜200 ね 76-51' limit 1),
     82,
     93,
     'assigned',
@@ -203,6 +229,11 @@ values
     array['中文', '日语'],
     'partner',
     '+81-90-6677-9831',
+    'wins_wang',
+    'wins.wang',
+    9,
+    '#7c3aed',
+    (select id from public.vehicles where plate_number = '多摩500 こ 31-09' limit 1),
     76,
     97,
     'available',
@@ -468,6 +499,35 @@ values
     360000,
     242000,
     '[schedule][start_time:15:00] 已完成浅草文化体验与晚宴，客户反馈良好。'
+  );
+
+insert into public.driver_incidents (
+  driver_id,
+  order_id,
+  occurred_on,
+  severity,
+  title,
+  description,
+  status
+)
+values
+  (
+    (select id from public.drivers where full_name = '山本 健' limit 1),
+    (select id from public.orders where order_no = 'WIN-20260608-001' limit 1),
+    '2026-06-08',
+    'minor',
+    '酒店停车场倒车擦碰',
+    '车辆低速倒车时与停车场立柱发生轻微擦碰，无人员受伤，已完成现场确认和内部复盘。',
+    'reviewed'
+  ),
+  (
+    (select id from public.drivers where full_name = '田中 宏' limit 1),
+    null,
+    '2026-05-18',
+    'minor',
+    '道路碎石造成车身轻微损伤',
+    '行驶途中被前车带起碎石击中车身，无驾驶责任，已完成车辆检查。',
+    'closed'
   );
 
 insert into public.trip_costs (order_id, category, label, amount_jpy, supplier_name, notes)

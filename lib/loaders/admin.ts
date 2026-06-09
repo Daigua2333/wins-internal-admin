@@ -116,6 +116,10 @@ export type DriverScheduleAssignment = {
   weekdayLabel: string;
   driverId: string;
   driverName: string;
+  driverColor: string;
+  vehicleId: string | null;
+  vehicleName: string;
+  vehiclePlateNumber: string;
   orderNo: string;
   routeTitle: string;
   statusLabel: string;
@@ -128,6 +132,7 @@ export type DriverDispatchCandidate = {
   serviceDateLabel: string;
   statusLabel: string;
   currentDriverName: string;
+  currentVehicleName: string;
 };
 export type DriverRouteLog = {
   id: string;
@@ -137,19 +142,25 @@ export type DriverRouteLog = {
   routeTitle: string;
   orderNo: string;
   statusLabel: string;
+  vehicleName: string;
+  vehiclePlateNumber: string;
 };
 export type DriverFairnessRecord = {
   id: string;
   name: string;
   language: string;
   contractLabel: string;
-  monthlyDutyHours: string;
+  displayColor: string;
+  defaultVehicleLabel: string;
+  monthlyAttendanceDays: string;
   assignedDays: number;
   routeCount: number;
   fairnessLabel: string;
   fairnessTone: "balanced" | "busy" | "light";
 };
 export type DriverScheduleSnapshot = {
+  month: string;
+  monthLabel: string;
   scheduleDays: Array<{
     date: string;
     dateLabel: string;
@@ -159,12 +170,20 @@ export type DriverScheduleSnapshot = {
   fairnessRecords: DriverFairnessRecord[];
   routeLogs: DriverRouteLog[];
   dispatchCandidates: DriverDispatchCandidate[];
+  driverOptions: OrderCreateOption[];
+  vehicleOptions: OrderCreateOption[];
 };
-export type DriverSafetyLog = {
+export type DriverIncidentLog = {
   id: string;
+  occurredOn: string;
   dateLabel: string;
-  score: number;
-  note: string;
+  severity: "minor" | "major" | "critical";
+  severityLabel: string;
+  title: string;
+  description: string;
+  status: "open" | "reviewed" | "closed";
+  statusLabel: string;
+  orderNo: string;
 };
 export type DriverOperationsRecord = {
   id: string;
@@ -174,14 +193,17 @@ export type DriverOperationsRecord = {
   contractType: "full_time" | "part_time" | "partner";
   contractLabel: string;
   phone: string;
-  dutyHoursMonthly: number;
-  dutyHoursLabel: string;
-  safetyScore: number;
-  safetyScoreLabel: string;
+  wechatId: string;
+  lineId: string;
+  attendanceDaysMonthly: number;
+  attendanceDaysLabel: string;
+  displayColor: string;
+  defaultVehicleId: string | null;
+  defaultVehicleLabel: string;
   status: string;
   statusLabel: string;
   notes: string;
-  safetyLogs: DriverSafetyLog[];
+  incidentLogs: DriverIncidentLog[];
 };
 export type GuideScheduleAssignment = {
   id: string;
@@ -1061,14 +1083,14 @@ export async function getDriverWorkbenchRows(): Promise<UiRow[]> {
     name: row.full_name,
     language: Array.isArray(row.languages) ? row.languages.join(" / ") : "",
     contract: mapContractType(row.contract_type),
-    dutyHours: `${Number(row.duty_hours_monthly ?? 0)}h`,
-    safetyScore: String(Number(row.safety_score ?? 0)),
+    attendanceDays: `${Number(row.attendance_days_monthly ?? 0)} 天`,
+    defaultVehicle: row.default_vehicle_id ?? "未绑定",
     status: mapStaffStatus(row.status),
   }));
 }
 
 export async function getDriverOperationsRecords(): Promise<DriverOperationsRecord[]> {
-  const { enabled, drivers } = getRepositories();
+  const { enabled, drivers, vehicles } = getRepositories();
 
   if (!enabled) {
     return driverRows.map((row, index) => ({
@@ -1079,22 +1101,31 @@ export async function getDriverOperationsRecords(): Promise<DriverOperationsReco
       contractType: row.contract === "全职" ? "full_time" : row.contract === "兼职" ? "part_time" : "partner",
       contractLabel: row.contract,
       phone: index === 0 ? "090-3200-8821" : index === 1 ? "090-5143-1200" : "090-7651-4450",
-      dutyHoursMonthly: Number(row.dutyHours.replace("h", "")),
-      dutyHoursLabel: row.dutyHours,
-      safetyScore: Number(row.safetyScore),
-      safetyScoreLabel: row.safetyScore,
+      wechatId: index % 2 === 0 ? `wins_driver_${index + 1}` : "",
+      lineId: index % 2 === 1 ? `wins.line.${index + 1}` : "",
+      attendanceDaysMonthly: [12, 8, 10, 11, 9][index] ?? 0,
+      attendanceDaysLabel: `${[12, 8, 10, 11, 9][index] ?? 0} 天`,
+      displayColor: ["#0f766e", "#2563eb", "#d97706", "#be123c", "#7c3aed"][index] ?? "#0f766e",
+      defaultVehicleId: `mock-vehicle-${(index % fleetRows.length) + 1}`,
+      defaultVehicleLabel: fleetRows[index % fleetRows.length]?.plateNo ?? "未绑定",
       status: mapStaffStatusToCode(row.status),
       statusLabel: row.status,
       notes: row.status === "休假中" ? "本周安排年假，暂不参与高峰排班。" : "适合东京市区、机场线与包车任务。",
-      safetyLogs: buildMockDriverSafetyLogs(index + 1, Number(row.safetyScore)),
+      incidentLogs: buildMockDriverIncidentLogs(index + 1),
     }));
   }
 
-  const data = await drivers.list({ limit: 100 });
+  const [data, vehicleData, supabase] = await Promise.all([drivers.list({ limit: 100 }), vehicles.list({ limit: 200 }), createClient()]);
 
   if (!data.length) {
     return [];
   }
+
+  const { data: incidentData } = await supabase
+    .from("driver_incidents")
+    .select("id,driver_id,order_id,occurred_on,severity,title,description,status,order:orders(order_no)")
+    .order("occurred_on", { ascending: false })
+    .limit(500);
 
   return data.map((driver) => ({
     id: driver.id,
@@ -1104,47 +1135,54 @@ export async function getDriverOperationsRecords(): Promise<DriverOperationsReco
     contractType: driver.contract_type,
     contractLabel: mapContractType(driver.contract_type),
     phone: driver.phone ?? "",
-    dutyHoursMonthly: Number(driver.duty_hours_monthly ?? 0),
-    dutyHoursLabel: `${Number(driver.duty_hours_monthly ?? 0)}h`,
-    safetyScore: Number(driver.safety_score ?? 0),
-    safetyScoreLabel: String(Number(driver.safety_score ?? 0)),
+    wechatId: driver.wechat_id ?? "",
+    lineId: driver.line_id ?? "",
+    attendanceDaysMonthly: Number(driver.attendance_days_monthly ?? 0),
+    attendanceDaysLabel: `${Number(driver.attendance_days_monthly ?? 0)} 天`,
+    displayColor: driver.display_color ?? "#0f766e",
+    defaultVehicleId: driver.default_vehicle_id ?? null,
+    defaultVehicleLabel: vehicleData.find((vehicle) => vehicle.id === driver.default_vehicle_id)?.plate_number ?? "未绑定",
     status: driver.status,
     statusLabel: mapStaffStatus(driver.status),
     notes: driver.notes ?? "",
-    safetyLogs: parseDriverSafetyLogs(driver.notes, Number(driver.safety_score ?? 0)),
+    incidentLogs: ((incidentData as Array<any> | null) ?? [])
+      .filter((incident) => incident.driver_id === driver.id)
+      .map(mapDriverIncidentLog),
   }));
 }
 
-export async function getDriverScheduleSnapshot(): Promise<DriverScheduleSnapshot> {
-  const { enabled, drivers } = getRepositories();
+export async function getDriverScheduleSnapshot(monthInput?: string): Promise<DriverScheduleSnapshot> {
+  const { enabled, drivers, vehicles } = getRepositories();
+  const month = normalizeMonthInput(monthInput);
 
   if (!enabled) {
-    return buildMockDriverScheduleSnapshot();
+    return buildMockDriverScheduleSnapshot(month);
   }
 
-  const [driverData, supabase] = await Promise.all([drivers.list({ limit: 100 }), createClient()]);
+  const [driverData, vehicleData, supabase] = await Promise.all([drivers.list({ limit: 100 }), vehicles.list({ limit: 200 }), createClient()]);
 
-  if (!driverData.length) {
-    return buildMockDriverScheduleSnapshot();
-  }
-
+  const { startDate, endDate } = getMonthBounds(month);
   const { data: orderData, error } = await supabase
     .from("orders")
-    .select("id, order_no, title, service_date, driver_id, status")
-    .not("driver_id", "is", null)
+    .select("id, order_no, title, service_date, driver_id, vehicle_id, status")
+    .gte("service_date", startDate)
+    .lte("service_date", endDate)
+    .neq("status", "cancelled")
     .order("service_date", { ascending: true })
-    .limit(300);
+    .limit(1000);
 
-  if (error || !orderData) {
-    return buildMockDriverScheduleSnapshot();
+  if (error) {
+    console.error("[drivers:schedule]", error.message);
   }
 
-  const assignments = (orderData as Array<any>)
+  const monthlyOrders = (orderData as Array<any> | null) ?? [];
+  const assignments = monthlyOrders
     .filter((row) => row.driver_id && row.service_date)
     .map((row) => {
       const serviceDate = String(row.service_date);
       const day = new Date(`${serviceDate}T00:00:00`);
       const driver = driverData.find((item) => item.id === row.driver_id);
+      const vehicle = vehicleData.find((item) => item.id === row.vehicle_id);
 
       return {
         id: row.id,
@@ -1153,18 +1191,17 @@ export async function getDriverScheduleSnapshot(): Promise<DriverScheduleSnapsho
         weekdayLabel: formatWeekday(day),
         driverId: row.driver_id,
         driverName: driver?.full_name ?? "未匹配司机",
+        driverColor: driver?.display_color ?? "#64748b",
+        vehicleId: row.vehicle_id ?? null,
+        vehicleName: vehicle?.label ?? "待配车",
+        vehiclePlateNumber: vehicle?.plate_number ?? "未配车",
         orderNo: row.order_no,
         routeTitle: row.title,
         statusLabel: mapOrderStatus(row.status),
       } satisfies DriverScheduleAssignment;
     });
 
-  if (!assignments.length) {
-    return buildMockDriverScheduleSnapshot();
-  }
-
-  const uniqueDates = Array.from(new Set(assignments.map((item) => item.date))).slice(0, 7);
-  const scheduleDays = uniqueDates.map((date) => {
+  const scheduleDays = buildMonthDateList(month).map((date) => {
     const day = new Date(`${date}T00:00:00`);
 
     return {
@@ -1186,7 +1223,9 @@ export async function getDriverScheduleSnapshot(): Promise<DriverScheduleSnapsho
         name: driver.full_name,
         language: Array.isArray(driver.languages) ? driver.languages.join(" / ") : "",
         contractLabel: mapContractType(driver.contract_type),
-        monthlyDutyHours: `${Number(driver.duty_hours_monthly ?? 0)}h`,
+        displayColor: driver.display_color ?? "#0f766e",
+        defaultVehicleLabel: vehicleData.find((vehicle) => vehicle.id === driver.default_vehicle_id)?.plate_number ?? "未绑定",
+        monthlyAttendanceDays: `${assignedDays} 天`,
         assignedDays,
         routeCount,
         ...resolveFairnessState(assignedDays, routeCount),
@@ -1203,14 +1242,18 @@ export async function getDriverScheduleSnapshot(): Promise<DriverScheduleSnapsho
       routeTitle: assignment.routeTitle,
       orderNo: assignment.orderNo,
       statusLabel: assignment.statusLabel,
+      vehicleName: assignment.vehicleName,
+      vehiclePlateNumber: assignment.vehiclePlateNumber,
     }))
     .sort((left, right) => right.date.localeCompare(left.date));
 
   return {
+    month,
+    monthLabel: formatMonthLabel(month),
     scheduleDays,
     fairnessRecords,
     routeLogs,
-    dispatchCandidates: (orderData as Array<any>)
+    dispatchCandidates: monthlyOrders
       .filter((row) => row.service_date)
       .map((row) => {
         const day = new Date(`${row.service_date}T00:00:00`);
@@ -1224,10 +1267,21 @@ export async function getDriverScheduleSnapshot(): Promise<DriverScheduleSnapsho
           serviceDateLabel: formatMonthDay(day),
           statusLabel: mapOrderStatus(row.status),
           currentDriverName: driver?.full_name ?? "待分配",
+          currentVehicleName: vehicleData.find((vehicle) => vehicle.id === row.vehicle_id)?.plate_number ?? "待配车",
         } satisfies DriverDispatchCandidate;
       })
       .sort((left, right) => left.serviceDate.localeCompare(right.serviceDate))
-      .slice(0, 20),
+      .slice(0, 100),
+    driverOptions: driverData.map((driver) => ({
+      id: driver.id,
+      label: driver.full_name,
+      hint: vehicleData.find((vehicle) => vehicle.id === driver.default_vehicle_id)?.plate_number ?? "未绑定默认车辆",
+    })),
+    vehicleOptions: vehicleData.map((vehicle) => ({
+      id: vehicle.id,
+      label: vehicle.plate_number,
+      hint: vehicle.label,
+    })),
   };
 }
 
@@ -1716,15 +1770,15 @@ export async function getDriverSummaryItems(): Promise<SummaryItem[]> {
   const availableDrivers = data.filter((item) => item.status === "available").length;
   const chineseSpeakingDrivers = data.filter((item) => item.languages.some((language) => language.includes("中文"))).length;
   const offDutyDrivers = data.filter((item) => item.status === "off_duty").length;
-  const averageDutyHours =
-    data.reduce((sum, item) => sum + Number(item.duty_hours_monthly ?? 0), 0) / Math.max(data.length, 1);
-  const averageSafetyScore = data.reduce((sum, item) => sum + Number(item.safety_score ?? 0), 0) / Math.max(data.length, 1);
+  const averageAttendanceDays =
+    data.reduce((sum, item) => sum + Number(item.attendance_days_monthly ?? 0), 0) / Math.max(data.length, 1);
+  const boundVehicles = data.filter((item) => Boolean(item.default_vehicle_id)).length;
 
   return [
     { title: "可派单司机", value: `${formatNumber(availableDrivers)} 人`, detail: `其中 ${formatNumber(chineseSpeakingDrivers)} 人可执行中文接待` },
     { title: "休假中", value: `${formatNumber(offDutyDrivers)} 人`, detail: "旺季排班前建议提前确认替补资源" },
-    { title: "本月平均工时", value: `${averageDutyHours.toFixed(0)}h`, detail: "基于司机档案中的月度工时字段" },
-    { title: "安全均分", value: averageSafetyScore.toFixed(1), detail: "用于快速观察整体服务与驾驶稳定性" },
+    { title: "本月平均出勤", value: `${averageAttendanceDays.toFixed(1)} 天`, detail: "基于司机档案中的月度出勤天数" },
+    { title: "默认车辆已绑定", value: `${formatNumber(boundVehicles)} 人`, detail: "排班时可自动带入常用车辆，并允许按日修改" },
   ];
 }
 
@@ -2587,61 +2641,40 @@ function mapQuoteStatusToCode(statusLabel: string) {
   return statusMap[statusLabel] ?? "draft";
 }
 
-function buildMockDriverScheduleSnapshot(): DriverScheduleSnapshot {
-  const assignments: DriverScheduleAssignment[] = [
-    {
-      id: "mock-driver-route-1",
-      date: "2026-05-26",
-      dateLabel: "5/26",
-      weekdayLabel: "Mon",
-      driverId: "mock-driver-1",
-      driverName: "田中宏",
-      orderNo: "WIN-250522-01",
-      routeTitle: "Narita Pickup + Tokyo 3D2N",
-      statusLabel: "待确认",
-    },
-    {
-      id: "mock-driver-route-2",
-      date: "2026-05-27",
-      dateLabel: "5/27",
-      weekdayLabel: "Tue",
-      driverId: "mock-driver-3",
-      driverName: "铃木启介",
-      orderNo: "WIN-250522-02",
-      routeTitle: "Mt. Fuji Day Tour",
-      statusLabel: "已排车",
-    },
-    {
-      id: "mock-driver-route-3",
-      date: "2026-05-29",
-      dateLabel: "5/29",
-      weekdayLabel: "Thu",
-      driverId: "mock-driver-2",
-      driverName: "伊藤勇人",
-      orderNo: "WIN-250522-03",
-      routeTitle: "Corporate Arrival Support",
-      statusLabel: "进行中",
-    },
-    {
-      id: "mock-driver-route-4",
-      date: "2026-05-29",
-      dateLabel: "5/29",
-      weekdayLabel: "Thu",
-      driverId: "mock-driver-1",
-      driverName: "田中宏",
-      orderNo: "WIN-250530-01",
-      routeTitle: "Tokyo City VIP Transfer",
-      statusLabel: "已排车",
-    },
-  ];
+function buildMockDriverScheduleSnapshot(month: string): DriverScheduleSnapshot {
+  const colors = ["#0f766e", "#2563eb", "#d97706", "#be123c", "#7c3aed"];
+  const matchingOrders = orderRows.filter((order) => order.date.startsWith(month));
+  const assignments: DriverScheduleAssignment[] = matchingOrders.map((order, index) => {
+    const driverIndex = index % driverRows.length;
+    const vehicleIndex = index % fleetRows.length;
+    const day = new Date(`${order.date}T00:00:00`);
 
-  const uniqueDates = Array.from(new Set(assignments.map((item) => item.date)));
-  const scheduleDays = uniqueDates.map((date) => ({
-    date,
-    dateLabel: assignments.find((item) => item.date === date)?.dateLabel ?? date,
-    weekdayLabel: assignments.find((item) => item.date === date)?.weekdayLabel ?? "",
-    assignments: assignments.filter((item) => item.date === date),
-  }));
+    return {
+      id: `mock-order-${index + 1}`,
+      date: order.date,
+      dateLabel: formatMonthDay(day),
+      weekdayLabel: formatWeekday(day),
+      driverId: `mock-driver-${driverIndex + 1}`,
+      driverName: driverRows[driverIndex]?.name ?? "未匹配司机",
+      driverColor: colors[driverIndex] ?? "#64748b",
+      vehicleId: `mock-vehicle-${vehicleIndex + 1}`,
+      vehicleName: fleetRows[vehicleIndex]?.type ?? "待配车",
+      vehiclePlateNumber: fleetRows[vehicleIndex]?.plateNo ?? "未配车",
+      orderNo: order.orderNo,
+      routeTitle: order.itinerary,
+      statusLabel: order.status,
+    };
+  });
+
+  const scheduleDays = buildMonthDateList(month).map((date) => {
+    const day = new Date(`${date}T00:00:00`);
+    return {
+      date,
+      dateLabel: formatMonthDay(day),
+      weekdayLabel: formatWeekday(day),
+      assignments: assignments.filter((item) => item.date === date),
+    };
+  });
 
   const fairnessRecords = driverRows.map((row, index) => {
     const driverId = `mock-driver-${index + 1}`;
@@ -2654,7 +2687,9 @@ function buildMockDriverScheduleSnapshot(): DriverScheduleSnapshot {
       name: row.name,
       language: row.language,
       contractLabel: row.contract,
-      monthlyDutyHours: row.dutyHours,
+      displayColor: colors[index] ?? "#64748b",
+      defaultVehicleLabel: fleetRows[index % fleetRows.length]?.plateNo ?? "未绑定",
+      monthlyAttendanceDays: `${assignedDays} 天`,
       assignedDays,
       routeCount,
       ...resolveFairnessState(assignedDays, routeCount),
@@ -2670,71 +2705,53 @@ function buildMockDriverScheduleSnapshot(): DriverScheduleSnapshot {
       routeTitle: assignment.routeTitle,
       orderNo: assignment.orderNo,
       statusLabel: assignment.statusLabel,
+      vehicleName: assignment.vehicleName,
+      vehiclePlateNumber: assignment.vehiclePlateNumber,
     }))
     .sort((left, right) => right.date.localeCompare(left.date));
 
   return {
+    month,
+    monthLabel: formatMonthLabel(month),
     scheduleDays,
     fairnessRecords,
     routeLogs,
-    dispatchCandidates: buildMockDriverDispatchCandidates(),
+    dispatchCandidates: matchingOrders.map((order, index) => ({
+      orderId: `mock-order-${index + 1}`,
+      orderNo: order.orderNo,
+      routeTitle: order.itinerary,
+      serviceDate: order.date,
+      serviceDateLabel: formatMonthDay(new Date(`${order.date}T00:00:00`)),
+      statusLabel: order.status,
+      currentDriverName: assignments[index]?.driverName ?? "待分配",
+      currentVehicleName: assignments[index]?.vehiclePlateNumber ?? "待配车",
+    })),
+    driverOptions: driverRows.map((row, index) => ({
+      id: `mock-driver-${index + 1}`,
+      label: row.name,
+      hint: fleetRows[index % fleetRows.length]?.plateNo ?? "未绑定默认车辆",
+    })),
+    vehicleOptions: fleetRows.map((row, index) => ({
+      id: `mock-vehicle-${index + 1}`,
+      label: row.plateNo,
+      hint: row.type,
+    })),
   };
 }
 
-function buildMockDriverDispatchCandidates(): DriverDispatchCandidate[] {
+function buildMockDriverIncidentLogs(seed: number): DriverIncidentLog[] {
   return [
     {
-      orderId: "mock-order-1",
-      orderNo: "WIN-250522-01",
-      routeTitle: "Narita Pickup + Tokyo 3D2N",
-      serviceDate: "2026-05-26",
-      serviceDateLabel: "5/26",
-      statusLabel: "待确认",
-      currentDriverName: "田中宏",
-    },
-    {
-      orderId: "mock-order-2",
-      orderNo: "WIN-250522-02",
-      routeTitle: "Mt. Fuji Day Tour",
-      serviceDate: "2026-05-27",
-      serviceDateLabel: "5/27",
-      statusLabel: "已排车",
-      currentDriverName: "铃木启介",
-    },
-    {
-      orderId: "mock-order-3",
-      orderNo: "WIN-250522-03",
-      routeTitle: "Corporate Arrival Support",
-      serviceDate: "2026-05-29",
-      serviceDateLabel: "5/29",
-      statusLabel: "进行中",
-      currentDriverName: "伊藤勇人",
-    },
-    {
-      orderId: "mock-order-4",
-      orderNo: "WIN-250530-01",
-      routeTitle: "Tokyo City VIP Transfer",
-      serviceDate: "2026-05-29",
-      serviceDateLabel: "5/29",
-      statusLabel: "已排车",
-      currentDriverName: "待分配",
-    },
-  ];
-}
-
-function buildMockDriverSafetyLogs(seed: number, currentScore: number): DriverSafetyLog[] {
-  return [
-    {
-      id: `mock-safety-${seed}-1`,
-      dateLabel: "2026-05-24",
-      score: currentScore,
-      note: "本周无事故，按时完成机场接送与东京市区任务。",
-    },
-    {
-      id: `mock-safety-${seed}-2`,
-      dateLabel: "2026-05-18",
-      score: Math.max(currentScore - 1, 80),
-      note: "客户对车内沟通和路线熟悉度给予正向反馈。",
+      id: `mock-incident-${seed}-1`,
+      occurredOn: "2026-06-02",
+      dateLabel: "2026/06/02",
+      severity: seed === 4 ? "major" : "minor",
+      severityLabel: seed === 4 ? "较严重" : "轻微",
+      title: seed === 4 ? "停车场倒车擦碰" : "无人员受伤的轻微擦碰",
+      description: "已完成现场确认和内部复盘，等待关闭记录。",
+      status: "reviewed",
+      statusLabel: "已复盘",
+      orderNo: "未关联订单",
     },
   ];
 }
@@ -2843,31 +2860,23 @@ function parseCustomerFollowLogs(notes: string | null): CustomerFollowLog[] {
     .filter(Boolean) as CustomerFollowLog[];
 }
 
-function parseDriverSafetyLogs(notes: string | null, currentScore: number): DriverSafetyLog[] {
-  if (!notes) {
-    return [];
-  }
+function mapDriverIncidentLog(row: any): DriverIncidentLog {
+  const severityLabels = { minor: "轻微", major: "较严重", critical: "重大" } as const;
+  const statusLabels = { open: "待处理", reviewed: "已复盘", closed: "已关闭" } as const;
+  const order = Array.isArray(row.order) ? row.order[0] : row.order;
 
-  const logs = notes
-    .split("\n")
-    .filter((line) => line.startsWith("[safety]"))
-    .map((line, index) => {
-      const match = line.match(/^\[safety\]\[(.+?)\]\[score:(\d+(?:\.\d+)?)\]\s*(.+)$/);
-
-      if (!match) {
-        return null;
-      }
-
-      return {
-        id: `safety-${index}-${match[1]}`,
-        dateLabel: match[1],
-        score: Number(match[2] ?? currentScore),
-        note: match[3] ?? "",
-      } satisfies DriverSafetyLog;
-    })
-    .filter(Boolean) as DriverSafetyLog[];
-
-  return logs;
+  return {
+    id: row.id,
+    occurredOn: row.occurred_on,
+    dateLabel: row.occurred_on ? String(row.occurred_on).replaceAll("-", "/") : "未记录",
+    severity: row.severity,
+    severityLabel: severityLabels[row.severity as keyof typeof severityLabels] ?? row.severity,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    statusLabel: statusLabels[row.status as keyof typeof statusLabels] ?? row.status,
+    orderNo: order?.order_no ?? "未关联订单",
+  };
 }
 
 function parseGuideServiceLogs(notes: string | null): GuideServiceLog[] {
@@ -3029,6 +3038,40 @@ function formatMonthDay(value: Date) {
     month: "numeric",
     day: "numeric",
   }).format(value);
+}
+
+function normalizeMonthInput(value?: string) {
+  if (value && /^\d{4}-\d{2}$/.test(value)) return value;
+  return formatTokyoDateKey().slice(0, 7);
+}
+
+function getMonthBounds(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+
+  return {
+    startDate: `${month}-01`,
+    endDate: `${month}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+function buildMonthDateList(month: string) {
+  const { startDate, endDate } = getMonthBounds(month);
+  const dates: string[] = [];
+  const current = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  while (current <= end) {
+    dates.push(`${month}-${String(current.getDate()).padStart(2, "0")}`);
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+function formatMonthLabel(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return `${year} 年 ${monthNumber} 月`;
 }
 
 function formatTokyoDateKey(value = new Date()) {
