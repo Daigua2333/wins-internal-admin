@@ -476,6 +476,10 @@ export type Database = {
           status: PaymentReceiptStatus;
           reference_no: string | null;
           notes: string | null;
+          is_voided: boolean;
+          voided_at: string | null;
+          voided_by: string | null;
+          void_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -489,6 +493,10 @@ export type Database = {
           status?: PaymentReceiptStatus;
           reference_no?: string | null;
           notes?: string | null;
+          is_voided?: boolean;
+          voided_at?: string | null;
+          voided_by?: string | null;
+          void_reason?: string | null;
         };
         Update: {
           order_id?: string;
@@ -499,6 +507,10 @@ export type Database = {
           status?: PaymentReceiptStatus;
           reference_no?: string | null;
           notes?: string | null;
+          is_voided?: boolean;
+          voided_at?: string | null;
+          voided_by?: string | null;
+          void_reason?: string | null;
         };
         Relationships: [];
       };
@@ -514,6 +526,10 @@ export type Database = {
           status: SupplierPaymentStatus;
           reference_no: string | null;
           notes: string | null;
+          is_voided: boolean;
+          voided_at: string | null;
+          voided_by: string | null;
+          void_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -528,6 +544,10 @@ export type Database = {
           status?: SupplierPaymentStatus;
           reference_no?: string | null;
           notes?: string | null;
+          is_voided?: boolean;
+          voided_at?: string | null;
+          voided_by?: string | null;
+          void_reason?: string | null;
         };
         Update: {
           order_id?: string;
@@ -539,6 +559,42 @@ export type Database = {
           status?: SupplierPaymentStatus;
           reference_no?: string | null;
           notes?: string | null;
+          is_voided?: boolean;
+          voided_at?: string | null;
+          voided_by?: string | null;
+          void_reason?: string | null;
+        };
+        Relationships: [];
+      };
+      audit_logs: {
+        Row: {
+          id: string;
+          actor_id: string | null;
+          action: string;
+          entity_type: string;
+          entity_id: string | null;
+          summary: string;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_id?: string | null;
+          action: string;
+          entity_type: string;
+          entity_id?: string | null;
+          summary: string;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          actor_id?: string | null;
+          action?: string;
+          entity_type?: string;
+          entity_id?: string | null;
+          summary?: string;
+          metadata?: Json;
+          created_at?: string;
         };
         Relationships: [];
       };

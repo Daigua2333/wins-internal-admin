@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { writeAuditLog } from "@/lib/audit/log";
 import { getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { getOperationsPolicySettings } from "@/lib/settings/runtime";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -59,6 +60,18 @@ export async function createOrder(formData: FormData) {
 
   const supabase = await createClient();
   const currentUser = await getCurrentUser();
+  const { data: customerTasks, error: customerTaskError } = await supabase
+    .from("customer_collaboration_tasks")
+    .select("title,description,priority,due_on,status")
+    .eq("customer_id", customerId)
+    .not("status", "in", "(completed,cancelled)")
+    .order("due_on", { ascending: true });
+
+  if (customerTaskError) {
+    console.error("[orders:create-customer-requirements]", customerTaskError.message);
+  }
+  const requirementSnapshot = buildCustomerRequirementSnapshot((customerTasks as Array<any> | null) ?? []);
+  const orderNotes = [notes, requirementSnapshot].filter(Boolean).join("\n\n");
 
   const serviceDates = buildRecurringServiceDates({
     baseDate: serviceDate,
@@ -77,7 +90,7 @@ export async function createOrder(formData: FormData) {
     revenue_jpy: revenueJpy,
     total_cost_jpy: 0,
     notes: buildRecurringOrderNotes({
-      notes,
+      notes: orderNotes,
       serviceStartTime,
       repeatMode,
       occurrenceIndex: index,
@@ -92,6 +105,20 @@ export async function createOrder(formData: FormData) {
     console.error("[orders:create]", error.message);
     redirect(`${redirectTo}?error=create_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "create",
+    entityType: "order",
+    summary: `创建 ${serviceDates.length} 张订单：${title}`,
+    metadata: {
+      customerId,
+      orderNos,
+      serviceDates,
+      repeatMode,
+      requirementCount: customerTasks?.length ?? 0,
+    },
+  });
 
   revalidatePath("/orders");
   revalidatePath("/dashboard");
@@ -795,6 +822,21 @@ function buildRecurringOrderNotes(input: {
       : `[recurring][mode:${input.repeatMode}][${input.occurrenceIndex + 1}/${input.totalOccurrences}][date:${input.serviceDate}]`;
 
   return [scheduleMetadata, recurringMetadata, input.notes].filter(Boolean).join("\n") || null;
+}
+
+function buildCustomerRequirementSnapshot(
+  tasks: Array<{ title: string; description: string | null; priority: string; due_on: string | null }>,
+) {
+  if (!tasks.length) {
+    return "";
+  }
+
+  const lines = tasks.map((task) => {
+    const meta = [task.priority ? `优先级:${task.priority}` : "", task.due_on ? `截止:${task.due_on}` : ""].filter(Boolean).join(" · ");
+    return `- ${task.title}${meta ? ` (${meta})` : ""}${task.description ? `：${task.description}` : ""}`;
+  });
+
+  return `[customer-requirements]\n${lines.join("\n")}`;
 }
 
 function buildOrderNotesWithStartTime(notes: string, serviceStartTime: string) {

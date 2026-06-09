@@ -2,6 +2,8 @@ import { PageIntro } from "@/components/layout/page-intro";
 import { FinanceOperationsWorkbench } from "@/components/finance/finance-operations-workbench";
 import { AccessDeniedCard } from "@/components/ui/access-denied-card";
 import { DashboardToast } from "@/components/ui/dashboard-toast";
+import { DataTable } from "@/components/ui/data-table";
+import { SectionCard } from "@/components/ui/section-card";
 import { SummaryGrid } from "@/components/ui/summary-grid";
 import { hasPermission } from "@/lib/auth/session";
 import {
@@ -10,6 +12,7 @@ import {
   getFinanceReceivableRecords,
   getFinanceSummaryItems,
   getPaymentReceiptRecords,
+  getRecentFinanceAuditLogs,
   getSupplierPaymentRecords,
 } from "@/lib/loaders/admin";
 
@@ -24,13 +27,14 @@ type FinancePageProps = {
 export default async function FinancePage({ searchParams }: FinancePageProps) {
   const params = (await searchParams) ?? {};
   const feedback = getFinanceFeedback(params);
-  const [summaryItems, statements, receivables, receipts, supplierPayments, orderOptions, canReadFinance, canWriteFinance] = await Promise.all([
+  const [summaryItems, statements, receivables, receipts, supplierPayments, orderOptions, auditLogs, canReadFinance, canWriteFinance] = await Promise.all([
     getFinanceSummaryItems(),
     getFinanceCustomerStatementRecords(),
     getFinanceReceivableRecords(),
     getPaymentReceiptRecords(),
     getSupplierPaymentRecords(),
     getFinanceOrderOptions(),
+    getRecentFinanceAuditLogs(),
     hasPermission("finance.read"),
     hasPermission("finance.write"),
   ]);
@@ -59,6 +63,20 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
         orderOptions={orderOptions}
         canWriteFinance={canWriteFinance}
       />
+
+      <SectionCard title="最近财务操作记录" description="保留回款与供应商付款的新增、修改和作废轨迹，便于月底复核和责任追溯。">
+        <DataTable
+          columns={["时间", "操作人", "动作", "对象", "摘要"]}
+          rows={auditLogs.map((log) => ({
+            time: log.createdAtLabel,
+            actor: log.actorLabel,
+            action: log.actionLabel,
+            entity: log.entityTypeLabel,
+            summary: log.summary,
+          }))}
+          emptyMessage="当前还没有财务操作日志；执行新增、修改或作废后会自动出现。"
+        />
+      </SectionCard>
     </>
   );
 }
@@ -96,12 +114,12 @@ function getFinanceFeedback(params: { message?: string; error?: string; detail?:
     };
   }
 
-  if (params.message === "receipt_deleted") {
-    return { type: "success" as const, message: "回款记录已删除。", detail: "应收余额和客户对账摘要已经重新计算。" };
+  if (params.message === "receipt_voided") {
+    return { type: "success" as const, message: "回款记录已作废。", detail: "原始记录和作废原因已保留，应收余额和客户对账摘要已经重新计算。" };
   }
 
-  if (params.message === "supplier_payment_deleted") {
-    return { type: "success" as const, message: "供应商付款记录已删除。", detail: "付款台账和净现金流已经重新计算。" };
+  if (params.message === "supplier_payment_voided") {
+    return { type: "success" as const, message: "供应商付款记录已作废。", detail: "原始记录和作废原因已保留，净现金流已经重新计算。" };
   }
 
   if (params.error === "not_allowed") {
@@ -114,6 +132,14 @@ function getFinanceFeedback(params: { message?: string; error?: string; detail?:
 
   if (params.error === "missing_fields") {
     return { type: "error" as const, message: "请完整填写订单、到账日期、金额、方式和状态。" };
+  }
+
+  if (params.error === "missing_void_reason") {
+    return { type: "error" as const, message: "请填写作废原因后再继续。" };
+  }
+
+  if (params.error === "record_voided") {
+    return { type: "error" as const, message: "该财务记录已经作废，不能继续修改。" };
   }
 
   if (params.error === "invalid_amount") {
@@ -176,11 +202,11 @@ function getFinanceFeedback(params: { message?: string; error?: string; detail?:
     };
   }
 
-  if (params.error === "delete_failed" || params.error === "supplier_delete_failed") {
+  if (params.error === "void_failed" || params.error === "supplier_void_failed") {
     return {
       type: "error" as const,
-      message: "财务记录删除失败。",
-      detail: params.detail ? decodeURIComponent(params.detail) : "请检查 finance.write 权限和 Supabase 删除策略。",
+      message: "财务记录作废失败。",
+      detail: params.detail ? decodeURIComponent(params.detail) : "请检查 finance.write 权限，并确认 Supabase 已执行最新版 schema.sql。",
     };
   }
 

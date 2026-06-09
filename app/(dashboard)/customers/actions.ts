@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { hasPermission } from "@/lib/auth/session";
+import { writeAuditLog } from "@/lib/audit/log";
+import { getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/types/database";
@@ -168,12 +169,26 @@ export async function createCustomerCollaborationTask(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("customer_collaboration_tasks").insert({ ...payload, customer_id: customerId } as never);
+  const { data, error } = await supabase
+    .from("customer_collaboration_tasks")
+    .insert({ ...payload, customer_id: customerId } as never)
+    .select("id")
+    .single();
 
   if (error) {
     console.error("[customers:create-collaboration-task]", error.message);
     redirect(`/customers/${customerId}?error=task_create_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "create",
+    entityType: "customer_collaboration_task",
+    entityId: (data as { id: string }).id,
+    summary: `新增客户合作事项：${String(payload.title ?? "")}`,
+    metadata: { customerId, priority: payload.priority ?? "normal", dueOn: payload.due_on ?? null },
+  });
 
   revalidateCustomer(customerId);
   redirect(`/customers/${customerId}?message=task_created`);
@@ -200,6 +215,16 @@ export async function updateCustomerCollaborationTask(formData: FormData) {
     redirect(`/customers/${customerId}?error=task_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "customer_collaboration_task",
+    entityId: taskId,
+    summary: `更新客户合作事项：${String(payload.title ?? "")}`,
+    metadata: { customerId, status: payload.status ?? "todo", priority: payload.priority ?? "normal" },
+  });
+
   revalidateCustomer(customerId);
   redirect(`/customers/${customerId}?message=task_updated`);
 }
@@ -220,6 +245,16 @@ export async function deleteCustomerCollaborationTask(formData: FormData) {
     console.error("[customers:delete-collaboration-task]", error.message);
     redirect(`/customers/${customerId}?error=task_delete_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "delete",
+    entityType: "customer_collaboration_task",
+    entityId: taskId,
+    summary: "删除客户合作事项",
+    metadata: { customerId },
+  });
 
   revalidateCustomer(customerId);
   redirect(`/customers/${customerId}?message=task_deleted`);
@@ -305,4 +340,6 @@ function revalidateCustomer(customerId: string) {
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/dashboard");
+  revalidatePath("/orders");
+  revalidatePath("/calendar");
 }

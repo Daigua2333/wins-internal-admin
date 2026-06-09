@@ -64,6 +64,13 @@ export type OrderCreateOption = {
   id: string;
   label: string;
   hint?: string;
+  requirements?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    priorityLabel: string;
+    dueOnLabel: string;
+  }>;
 };
 export type DispatchResourceOptions = {
   vehicles: OrderCreateOption[];
@@ -492,6 +499,9 @@ export type PaymentReceiptRecord = {
   statusLabel: string;
   referenceNo: string;
   notes: string;
+  isVoided: boolean;
+  voidedAtLabel: string;
+  voidReason: string;
 };
 export type FinanceReceivableRecord = {
   id: string;
@@ -544,6 +554,17 @@ export type SupplierPaymentRecord = {
   statusLabel: string;
   referenceNo: string;
   notes: string;
+  isVoided: boolean;
+  voidedAtLabel: string;
+  voidReason: string;
+};
+export type AuditLogRecord = {
+  id: string;
+  createdAtLabel: string;
+  actorLabel: string;
+  actionLabel: string;
+  entityTypeLabel: string;
+  summary: string;
 };
 
 export async function getOrderWorkbenchRows(): Promise<UiRow[]> {
@@ -603,11 +624,24 @@ export async function getOrderCreateOptions(): Promise<{
 
   if (!enabled) {
     return {
-      customers: customerRows.map((row, index) => ({
-        id: `mock-customer-${index + 1}`,
-        label: row.company,
-        hint: row.contact,
-      })),
+      customers: customerRows.map((row, index) => {
+        const openTask = buildMockCustomerCollaborationTasks(index + 1)[0];
+
+        return {
+          id: `mock-customer-${index + 1}`,
+          label: row.company,
+          hint: row.contact,
+          requirements: openTask
+            ? [{
+                id: openTask.id,
+                title: openTask.title,
+                description: openTask.description,
+                priorityLabel: openTask.priorityLabel,
+                dueOnLabel: openTask.dueOnLabel,
+              }]
+            : [],
+        };
+      }),
       assignees: teamProfiles
         .filter((profile) => profile.active)
         .map((profile) => ({
@@ -618,13 +652,39 @@ export async function getOrderCreateOptions(): Promise<{
     };
   }
 
-  const [customerData, profileData] = await Promise.all([customers.list({ limit: 100 }), profiles.list({ limit: 100 })]);
+  const [customerData, profileData, supabase] = await Promise.all([
+    customers.list({ limit: 100 }),
+    profiles.list({ limit: 100 }),
+    createClient(),
+  ]);
+  const customerIds = customerData.map((customer) => customer.id);
+  const { data: taskData, error: taskError } = customerIds.length
+    ? await supabase
+        .from("customer_collaboration_tasks")
+        .select("id,customer_id,title,description,priority,due_on,status")
+        .in("customer_id", customerIds)
+        .not("status", "in", "(completed,cancelled)")
+        .order("due_on", { ascending: true })
+    : { data: [], error: null };
+
+  if (taskError) {
+    console.error("[orders:create-options-customer-requirements]", taskError.message);
+  }
 
   return {
     customers: customerData.map((customer) => ({
       id: customer.id,
       label: customer.company_name,
       hint: customer.contact_name,
+      requirements: ((taskData as Array<any> | null) ?? [])
+        .filter((task) => task.customer_id === customer.id)
+        .map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description ?? "",
+          priorityLabel: mapCollaborationTaskPriority(task.priority),
+          dueOnLabel: task.due_on ? formatDateDetail(task.due_on) : "未设置",
+        })),
     })),
     assignees: profileData
       .filter((profile) => profile.active)
@@ -2098,15 +2158,37 @@ export async function getDashboardPipelineCards(): Promise<DashboardPipelineCard
 }
 
 export async function getDashboardFocusItems(reminderLeadDays = 3): Promise<DashboardFocusItem[]> {
-  const reminders = await getOperationsReminderSnapshot(reminderLeadDays);
+  const [reminders, customers] = await Promise.all([
+    getOperationsReminderSnapshot(reminderLeadDays),
+    getCustomerOperationsRecords(),
+  ]);
+  const customerTasks = customers
+    .flatMap((customer) =>
+      customer.collaborationTasks
+        .filter((task) => !["completed", "cancelled"].includes(task.status))
+        .map((task) => ({
+          time: task.dueOnLabel,
+          title: `${customer.companyName} · ${task.title}`,
+          description: task.description || `${task.priorityLabel}优先级客户合作事项，进入客户档案继续处理。`,
+          href: `/customers/${customer.id}`,
+          priority: task.priority,
+          dueOn: task.dueOn,
+        })),
+    )
+    .sort((left, right) => {
+      const priorityOrder: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+      return (priorityOrder[left.priority] ?? 4) - (priorityOrder[right.priority] ?? 4) || left.dueOn.localeCompare(right.dueOn);
+    });
+  const reminderItems = reminders.items.map((item) => ({
+    time: item.dateLabel,
+    title: item.title,
+    description: item.detail,
+    href: item.href,
+  }));
+  const focusItems = [...customerTasks.slice(0, 2), ...reminderItems].slice(0, 3);
 
-  if (reminders.items.length) {
-    return reminders.items.slice(0, 3).map((item) => ({
-      time: item.dateLabel,
-      title: item.title,
-      description: item.detail,
-      href: item.href,
-    }));
+  if (focusItems.length) {
+    return focusItems;
   }
 
   return [
@@ -2132,10 +2214,11 @@ export async function getDashboardFocusItems(reminderLeadDays = 3): Promise<Dash
 }
 
 export async function getDashboardActionItems(): Promise<DashboardActionItem[]> {
-  const [orders, quotations, vehicles] = await Promise.all([
+  const [orders, quotations, vehicles, customers] = await Promise.all([
     getOrderOperationsRecords(),
     getPricingOperationsRecords(),
     getVehicleOperationsRecords(),
+    getCustomerOperationsRecords(),
   ]);
 
   const pendingOrders = orders.filter((record) => record.status === "draft" || record.status === "pending_confirmation").length;
@@ -2144,6 +2227,10 @@ export async function getDashboardActionItems(): Promise<DashboardActionItem[]> 
   ).length;
   const pendingQuotes = quotations.filter((record) => record.status === "draft" || record.status === "sent").length;
   const maintenanceVehicles = vehicles.filter((record) => record.status === "maintenance").length;
+  const openCustomerTasks = customers.reduce(
+    (count, customer) => count + customer.collaborationTasks.filter((task) => !["completed", "cancelled"].includes(task.status)).length,
+    0,
+  );
 
   return [
     {
@@ -2163,6 +2250,12 @@ export async function getDashboardActionItems(): Promise<DashboardActionItem[]> 
       description: "查看草稿与已发送报价，推动报价转订单。",
       href: "/pricing?status=待确认",
       meta: `${formatNumber(pendingQuotes)} 份`,
+    },
+    {
+      title: "处理客户合作事项",
+      description: "复核客户提出的 Wi-Fi、资料、接待规格等要求，避免创建订单后遗漏。",
+      href: "/customers",
+      meta: `${formatNumber(openCustomerTasks)} 项`,
     },
     {
       title: "检查车辆状态",
@@ -2384,6 +2477,9 @@ export async function getPaymentReceiptRecords(): Promise<PaymentReceiptRecord[]
         status,
         reference_no,
         notes,
+        is_voided,
+        voided_at,
+        void_reason,
         order:orders(order_no,service_date,title),
         customer:customers(company_name)
       `,
@@ -2411,9 +2507,12 @@ export async function getPaymentReceiptRecords(): Promise<PaymentReceiptRecord[]
     method: row.method,
     methodLabel: mapPaymentMethod(row.method),
     status: row.status,
-    statusLabel: mapPaymentReceiptStatus(row.status),
+    statusLabel: row.is_voided ? "已作废" : mapPaymentReceiptStatus(row.status),
     referenceNo: row.reference_no ?? "",
     notes: row.notes ?? "",
+    isVoided: Boolean(row.is_voided),
+    voidedAtLabel: row.voided_at ? formatDateTimeDetail(row.voided_at) : "",
+    voidReason: row.void_reason ?? "",
   }));
 }
 
@@ -2439,6 +2538,9 @@ export async function getSupplierPaymentRecords(): Promise<SupplierPaymentRecord
         status,
         reference_no,
         notes,
+        is_voided,
+        voided_at,
+        void_reason,
         order:orders(order_no,customer:customers(company_name))
       `,
     )
@@ -2464,9 +2566,12 @@ export async function getSupplierPaymentRecords(): Promise<SupplierPaymentRecord
     method: row.method,
     methodLabel: mapPaymentMethod(row.method),
     status: row.status,
-    statusLabel: mapSupplierPaymentStatus(row.status),
+    statusLabel: row.is_voided ? "已作废" : mapSupplierPaymentStatus(row.status),
     referenceNo: row.reference_no ?? "",
     notes: row.notes ?? "",
+    isVoided: Boolean(row.is_voided),
+    voidedAtLabel: row.voided_at ? formatDateTimeDetail(row.voided_at) : "",
+    voidReason: row.void_reason ?? "",
   }));
 }
 
@@ -2480,7 +2585,7 @@ export async function getFinanceReceivableRecords(): Promise<FinanceReceivableRe
   const receiptTotals = new Map<string, number>();
 
   for (const receipt of receipts) {
-    if (receipt.status === "pending") {
+    if (receipt.status === "pending" || receipt.isVoided) {
       continue;
     }
     receiptTotals.set(receipt.orderId, (receiptTotals.get(receipt.orderId) ?? 0) + receipt.amountJpy);
@@ -2530,10 +2635,10 @@ export async function getFinanceSummaryItems(): Promise<SummaryItem[]> {
 
   const totalOutstanding = receivables.reduce((sum, item) => sum + item.outstandingJpy, 0);
   const thisMonthReceived = receipts
-    .filter((item) => item.status !== "pending" && isInCurrentMonth(item.receivedOn))
+    .filter((item) => !item.isVoided && item.status !== "pending" && isInCurrentMonth(item.receivedOn))
     .reduce((sum, item) => sum + item.amountJpy, 0);
   const thisMonthPaid = payments
-    .filter((item) => item.status !== "pending" && isInCurrentMonth(item.paidOn))
+    .filter((item) => !item.isVoided && item.status !== "pending" && isInCurrentMonth(item.paidOn))
     .reduce((sum, item) => sum + item.amountJpy, 0);
   const netCash = thisMonthReceived - thisMonthPaid;
 
@@ -2543,6 +2648,36 @@ export async function getFinanceSummaryItems(): Promise<SummaryItem[]> {
     { title: "本月已付款", value: formatCurrency(thisMonthPaid), detail: "按供应商付款台账统计本月已支付金额" },
     { title: "本月净现金流", value: formatCurrency(netCash), detail: "用本月已回款减去本月已付款，帮助快速感知现金压力" },
   ];
+}
+
+export async function getRecentFinanceAuditLogs(limit = 12): Promise<AuditLogRecord[]> {
+  const { enabled } = getRepositories();
+
+  if (!enabled) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("id,action,entity_type,summary,created_at,actor:profiles(full_name,email)")
+    .in("entity_type", ["payment_receipt", "supplier_payment"])
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !data) {
+    if (error) console.error("[finance:audit-logs]", error.message);
+    return [];
+  }
+
+  return (data as Array<any>).map((row) => ({
+    id: row.id,
+    createdAtLabel: formatDateTimeDetail(row.created_at),
+    actorLabel: row.actor?.full_name ?? row.actor?.email ?? "未知账号",
+    actionLabel: row.action === "void" ? "作废" : row.action === "create" ? "新增" : row.action === "update" ? "更新" : row.action,
+    entityTypeLabel: row.entity_type === "payment_receipt" ? "客户回款" : "供应商付款",
+    summary: row.summary,
+  }));
 }
 
 function mapOrderStatus(status: string) {
@@ -3338,6 +3473,9 @@ function buildMockPaymentReceiptRecords(): PaymentReceiptRecord[] {
       statusLabel: mapPaymentReceiptStatus(status),
       referenceNo: `RCPT-202605-${String(index + 1).padStart(3, "0")}`,
       notes: status === "pending" ? "客户已承诺本周内付款，待财务确认到账。" : "已完成第一版回款登记。",
+      isVoided: false,
+      voidedAtLabel: "",
+      voidReason: "",
     };
   });
 }
@@ -3368,6 +3506,9 @@ function buildMockSupplierPaymentRecords(): SupplierPaymentRecord[] {
       statusLabel: mapSupplierPaymentStatus(status),
       referenceNo: `PAY-202605-${String(index + 1).padStart(3, "0")}`,
       notes: status === "pending" ? "待财务确认月底统一付款。" : "已完成第一版付款登记。",
+      isVoided: false,
+      voidedAtLabel: "",
+      voidReason: "",
     };
   });
 }
@@ -3412,7 +3553,7 @@ function buildCustomerStatementRecords(
 
   for (const receipt of receipts) {
     const current = grouped.get(receipt.customerId);
-    if (!current) {
+    if (!current || receipt.isVoided) {
       continue;
     }
     if (!current.lastReceiptDate || receipt.receivedOn > current.lastReceiptDate) {
@@ -3451,6 +3592,22 @@ function formatDateDetail(value: string) {
   }
 
   return `${target.getMonth() + 1}/${target.getDate()}`;
+}
+
+function formatDateTimeDetail(value: string) {
+  const target = new Date(value);
+
+  if (Number.isNaN(target.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(target);
 }
 
 function mapPaymentMethod(method: string) {

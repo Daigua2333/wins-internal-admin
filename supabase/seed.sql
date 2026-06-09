@@ -7,6 +7,7 @@
 
 begin;
 
+delete from public.audit_logs;
 delete from public.supplier_payments;
 delete from public.payment_receipts;
 delete from public.trip_costs;

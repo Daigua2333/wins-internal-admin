@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 
-import { createPaymentReceipt, createSupplierPayment, deletePaymentReceipt, deleteSupplierPayment, updatePaymentReceipt, updateSupplierPayment } from "@/app/(dashboard)/finance/actions";
+import { createPaymentReceipt, createSupplierPayment, updatePaymentReceipt, updateSupplierPayment, voidPaymentReceipt, voidSupplierPayment } from "@/app/(dashboard)/finance/actions";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmActionButton } from "@/components/ui/confirm-action-button";
 import { DataTable } from "@/components/ui/data-table";
@@ -577,6 +577,12 @@ export function FinanceOperationsWorkbench({
                 <div>
                   {selectedReceipt ? (
                     <div className="space-y-3">
+                    {selectedReceipt.isVoided ? (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                        <p className="font-medium">该回款已作废，保留在台账中用于审计。</p>
+                        <p className="mt-1 text-xs leading-5">作废时间：{selectedReceipt.voidedAtLabel || "未记录"} · 原因：{selectedReceipt.voidReason || "未记录"}</p>
+                      </div>
+                    ) : null}
                     <form action={updatePaymentReceipt} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
                       <input type="hidden" name="receiptId" value={selectedReceipt.id} />
 
@@ -695,19 +701,23 @@ export function FinanceOperationsWorkbench({
                       </FormSection>
 
                       <PendingSubmitButton
-                        disabled={!canWriteFinance}
+                        disabled={!canWriteFinance || selectedReceipt.isVoided}
                         pendingLabel="正在保存回款..."
                         className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                       >
                         保存回款记录
                       </PendingSubmitButton>
                     </form>
-                    <form id={`delete-receipt-${selectedReceipt.id}`} action={deletePaymentReceipt}>
-                      <input type="hidden" name="receiptId" value={selectedReceipt.id} />
-                    </form>
-                    <div className="flex justify-end">
-                      <ConfirmActionButton formId={`delete-receipt-${selectedReceipt.id}`} title="确认删除这条回款记录？" description="删除后应收余额会重新计算，请仅用于修正错误流水。" confirmLabel="确认删除" disabled={!canWriteFinance}>删除错误回款</ConfirmActionButton>
-                    </div>
+                    {!selectedReceipt.isVoided ? (
+                      <form id={`void-receipt-${selectedReceipt.id}`} action={voidPaymentReceipt} className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
+                        <input type="hidden" name="receiptId" value={selectedReceipt.id} />
+                        <label className="mb-2 block text-sm font-medium text-rose-900">作废原因</label>
+                        <input name="voidReason" required placeholder="例如：重复登记、金额录入错误" disabled={!canWriteFinance} className="h-11 w-full rounded-2xl border border-rose-200 bg-white px-4 text-sm outline-none focus:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60" />
+                        <div className="mt-3 flex justify-end">
+                          <ConfirmActionButton formId={`void-receipt-${selectedReceipt.id}`} title="确认作废这条回款记录？" description="记录会保留在台账中，但不再计入应收与现金流；作废原因和操作人会写入审计日志。" confirmLabel="确认作废" disabled={!canWriteFinance}>作废错误回款</ConfirmActionButton>
+                        </div>
+                      </form>
+                    ) : null}
                     </div>
                   ) : (
                     <EmptyStateCard title="还没有回款流水" description="先在上方登记第一笔回款，这里就会开始显示到账状态、方式和备注。" />
@@ -744,6 +754,12 @@ export function FinanceOperationsWorkbench({
 
           {selectedSupplierPayment ? (
             <div className="space-y-3">
+            {selectedSupplierPayment.isVoided ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                <p className="font-medium">该付款已作废，保留在台账中用于审计。</p>
+                <p className="mt-1 text-xs leading-5">作废时间：{selectedSupplierPayment.voidedAtLabel || "未记录"} · 原因：{selectedSupplierPayment.voidReason || "未记录"}</p>
+              </div>
+            ) : null}
             <form action={updateSupplierPayment} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
               <input type="hidden" name="paymentId" value={selectedSupplierPayment.id} />
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -890,19 +906,23 @@ export function FinanceOperationsWorkbench({
               </FormSection>
 
               <PendingSubmitButton
-                disabled={!canWriteFinance}
+                disabled={!canWriteFinance || selectedSupplierPayment.isVoided}
                 pendingLabel="正在保存付款..."
                 className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 保存付款记录
               </PendingSubmitButton>
             </form>
-            <form id={`delete-supplier-payment-${selectedSupplierPayment.id}`} action={deleteSupplierPayment}>
-              <input type="hidden" name="paymentId" value={selectedSupplierPayment.id} />
-            </form>
-            <div className="flex justify-end">
-              <ConfirmActionButton formId={`delete-supplier-payment-${selectedSupplierPayment.id}`} title="确认删除这条供应商付款？" description="删除后净现金流会重新计算，请仅用于修正错误付款记录。" confirmLabel="确认删除" disabled={!canWriteFinance}>删除错误付款</ConfirmActionButton>
-            </div>
+            {!selectedSupplierPayment.isVoided ? (
+              <form id={`void-supplier-payment-${selectedSupplierPayment.id}`} action={voidSupplierPayment} className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
+                <input type="hidden" name="paymentId" value={selectedSupplierPayment.id} />
+                <label className="mb-2 block text-sm font-medium text-rose-900">作废原因</label>
+                <input name="voidReason" required placeholder="例如：重复付款、供应商信息错误" disabled={!canWriteFinance} className="h-11 w-full rounded-2xl border border-rose-200 bg-white px-4 text-sm outline-none focus:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60" />
+                <div className="mt-3 flex justify-end">
+                  <ConfirmActionButton formId={`void-supplier-payment-${selectedSupplierPayment.id}`} title="确认作废这条供应商付款？" description="记录会保留在台账中，但不再计入现金流；作废原因和操作人会写入审计日志。" confirmLabel="确认作废" disabled={!canWriteFinance}>作废错误付款</ConfirmActionButton>
+                </div>
+              </form>
+            ) : null}
             </div>
           ) : (
             <EmptyStateCard title="还没有供应商付款记录" description="先从上方登记第一笔付款，这里就会开始显示供应商、金额、状态和流水号。" />
@@ -943,6 +963,7 @@ export function FinanceOperationsWorkbench({
               <div className="mt-3 space-y-3 text-sm text-slate-600">
                 <p>流水号：{selectedReceipt.referenceNo || "未设置"}</p>
                 <p>备注：{selectedReceipt.notes || "当前没有备注。"}</p>
+                {selectedReceipt.isVoided ? <p className="text-rose-700">作废：{selectedReceipt.voidedAtLabel || "未记录"} · {selectedReceipt.voidReason || "未记录原因"}</p> : null}
               </div>
             </div>
           </div>
@@ -982,6 +1003,7 @@ export function FinanceOperationsWorkbench({
               <div className="mt-3 space-y-3 text-sm text-slate-600">
                 <p>流水号：{selectedSupplierPayment.referenceNo || "未设置"}</p>
                 <p>备注：{selectedSupplierPayment.notes || "当前没有备注。"}</p>
+                {selectedSupplierPayment.isVoided ? <p className="text-rose-700">作废：{selectedSupplierPayment.voidedAtLabel || "未记录"} · {selectedSupplierPayment.voidReason || "未记录原因"}</p> : null}
               </div>
             </div>
           </div>

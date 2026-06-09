@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { hasPermission } from "@/lib/auth/session";
+import { writeAuditLog } from "@/lib/audit/log";
+import { getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/types/database";
@@ -37,15 +38,29 @@ export async function createPaymentReceipt(formData: FormData) {
     redirect(`/finance?error=order_not_found&detail=${encodeURIComponent(orderError?.message ?? "找不到关联订单。")}`);
   }
 
-  const { error } = await supabase.from("payment_receipts").insert({
-    ...(payload as Database["public"]["Tables"]["payment_receipts"]["Insert"]),
-    customer_id: (order as { customer_id: string }).customer_id,
-  } as never);
+  const { data, error } = await supabase
+    .from("payment_receipts")
+    .insert({
+      ...(payload as Database["public"]["Tables"]["payment_receipts"]["Insert"]),
+      customer_id: (order as { customer_id: string }).customer_id,
+    } as never)
+    .select("id")
+    .single();
 
   if (error) {
     console.error("[finance:create-receipt]", error.message);
     redirect(`/finance?error=create_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "create",
+    entityType: "payment_receipt",
+    entityId: (data as { id: string }).id,
+    summary: `登记订单回款 ${String(payload.amount_jpy ?? 0)} JPY`,
+    metadata: { orderId },
+  });
 
   revalidateFinance();
   redirect("/finance?message=receipt_created");
@@ -80,37 +95,76 @@ export async function updatePaymentReceipt(formData: FormData) {
     redirect(`/finance?error=order_not_found&detail=${encodeURIComponent(orderError?.message ?? "找不到关联订单。")}`);
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("payment_receipts")
     .update({
       ...(payload as Database["public"]["Tables"]["payment_receipts"]["Update"]),
       customer_id: (order as { customer_id: string }).customer_id,
     } as never)
-    .eq("id", receiptId);
+    .eq("id", receiptId)
+    .eq("is_voided", false)
+    .select("id")
+    .maybeSingle();
 
-  if (error) {
+  if (error || !data) {
+    if (!error) redirect("/finance?error=record_voided");
     console.error("[finance:update-receipt]", error.message);
     redirect(`/finance?error=update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "payment_receipt",
+    entityId: receiptId,
+    summary: `更新订单回款 ${String(payload.amount_jpy ?? 0)} JPY`,
+    metadata: { orderId },
+  });
 
   revalidateFinance();
   redirect("/finance?message=receipt_updated");
 }
 
-export async function deletePaymentReceipt(formData: FormData) {
+export async function voidPaymentReceipt(formData: FormData) {
   const canWriteFinance = await hasPermission("finance.write");
   if (!canWriteFinance) redirect("/finance?error=not_allowed");
   if (!isSupabaseConfigured()) redirect("/finance?error=preview_mode");
 
   const receiptId = String(formData.get("receiptId") ?? "").trim();
-  if (!receiptId) redirect("/finance?error=missing_fields");
+  const voidReason = String(formData.get("voidReason") ?? "").trim();
+  if (!receiptId || !voidReason) redirect("/finance?error=missing_void_reason");
 
   const supabase = await createClient();
-  const { error } = await supabase.from("payment_receipts").delete().eq("id", receiptId);
-  if (error) redirect(`/finance?error=delete_failed&detail=${encodeURIComponent(error.message)}`);
+  const currentUser = await getCurrentUser();
+  const { data, error } = await supabase
+    .from("payment_receipts")
+    .update({
+      is_voided: true,
+      voided_at: new Date().toISOString(),
+      voided_by: currentUser?.id ?? null,
+      void_reason: voidReason,
+    } as never)
+    .eq("id", receiptId)
+    .eq("is_voided", false)
+    .select("id,order_id,amount_jpy")
+    .maybeSingle();
+  if (error || !data) {
+    const message = error?.message ?? "该回款已经作废。";
+    redirect(`/finance?error=void_failed&detail=${encodeURIComponent(message)}`);
+  }
+
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "void",
+    entityType: "payment_receipt",
+    entityId: receiptId,
+    summary: `作废订单回款 ${String((data as { amount_jpy: number }).amount_jpy)} JPY`,
+    metadata: { orderId: (data as { order_id: string }).order_id, reason: voidReason },
+  });
 
   revalidateFinance();
-  redirect("/finance?message=receipt_deleted");
+  redirect("/finance?message=receipt_voided");
 }
 
 export async function createSupplierPayment(formData: FormData) {
@@ -130,12 +184,22 @@ export async function createSupplierPayment(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("supplier_payments").insert(payload as never);
+  const { data, error } = await supabase.from("supplier_payments").insert(payload as never).select("id").single();
 
   if (error) {
     console.error("[finance:create-supplier-payment]", error.message);
     redirect(`/finance?error=supplier_create_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "create",
+    entityType: "supplier_payment",
+    entityId: (data as { id: string }).id,
+    summary: `登记供应商付款 ${String(payload.amount_jpy ?? 0)} JPY`,
+    metadata: { orderId: payload.order_id, supplierName: payload.supplier_name },
+  });
 
   revalidateFinance();
   redirect("/finance?message=supplier_payment_created");
@@ -163,31 +227,77 @@ export async function updateSupplierPayment(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("supplier_payments").update(payload as never).eq("id", paymentId);
+  const { data, error } = await supabase
+    .from("supplier_payments")
+    .update(payload as never)
+    .eq("id", paymentId)
+    .eq("is_voided", false)
+    .select("id")
+    .maybeSingle();
 
-  if (error) {
+  if (error || !data) {
+    if (!error) redirect("/finance?error=record_voided");
     console.error("[finance:update-supplier-payment]", error.message);
     redirect(`/finance?error=supplier_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "supplier_payment",
+    entityId: paymentId,
+    summary: `更新供应商付款 ${String(payload.amount_jpy ?? 0)} JPY`,
+    metadata: { orderId: payload.order_id, supplierName: payload.supplier_name },
+  });
 
   revalidateFinance();
   redirect("/finance?message=supplier_payment_updated");
 }
 
-export async function deleteSupplierPayment(formData: FormData) {
+export async function voidSupplierPayment(formData: FormData) {
   const canWriteFinance = await hasPermission("finance.write");
   if (!canWriteFinance) redirect("/finance?error=not_allowed");
   if (!isSupabaseConfigured()) redirect("/finance?error=preview_mode");
 
   const paymentId = String(formData.get("paymentId") ?? "").trim();
-  if (!paymentId) redirect("/finance?error=missing_fields");
+  const voidReason = String(formData.get("voidReason") ?? "").trim();
+  if (!paymentId || !voidReason) redirect("/finance?error=missing_void_reason");
 
   const supabase = await createClient();
-  const { error } = await supabase.from("supplier_payments").delete().eq("id", paymentId);
-  if (error) redirect(`/finance?error=supplier_delete_failed&detail=${encodeURIComponent(error.message)}`);
+  const currentUser = await getCurrentUser();
+  const { data, error } = await supabase
+    .from("supplier_payments")
+    .update({
+      is_voided: true,
+      voided_at: new Date().toISOString(),
+      voided_by: currentUser?.id ?? null,
+      void_reason: voidReason,
+    } as never)
+    .eq("id", paymentId)
+    .eq("is_voided", false)
+    .select("id,order_id,amount_jpy,supplier_name")
+    .maybeSingle();
+  if (error || !data) {
+    const message = error?.message ?? "该供应商付款已经作废。";
+    redirect(`/finance?error=supplier_void_failed&detail=${encodeURIComponent(message)}`);
+  }
+
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "void",
+    entityType: "supplier_payment",
+    entityId: paymentId,
+    summary: `作废供应商付款 ${String((data as { amount_jpy: number }).amount_jpy)} JPY`,
+    metadata: {
+      orderId: (data as { order_id: string }).order_id,
+      supplierName: (data as { supplier_name: string }).supplier_name,
+      reason: voidReason,
+    },
+  });
 
   revalidateFinance();
-  redirect("/finance?message=supplier_payment_deleted");
+  redirect("/finance?message=supplier_payment_voided");
 }
 
 function readPaymentReceiptPayload(formData: FormData):

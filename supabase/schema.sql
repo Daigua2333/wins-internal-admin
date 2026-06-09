@@ -270,6 +270,26 @@ create table if not exists public.supplier_payments (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+alter table public.payment_receipts add column if not exists is_voided boolean not null default false;
+alter table public.payment_receipts add column if not exists voided_at timestamptz;
+alter table public.payment_receipts add column if not exists voided_by uuid references public.profiles(id) on delete set null;
+alter table public.payment_receipts add column if not exists void_reason text;
+alter table public.supplier_payments add column if not exists is_voided boolean not null default false;
+alter table public.supplier_payments add column if not exists voided_at timestamptz;
+alter table public.supplier_payments add column if not exists voided_by uuid references public.profiles(id) on delete set null;
+alter table public.supplier_payments add column if not exists void_reason text;
+
+create table if not exists public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references public.profiles(id) on delete set null,
+  action text not null,
+  entity_type text not null,
+  entity_id uuid,
+  summary text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 create index if not exists idx_orders_customer_id on public.orders(customer_id);
 create index if not exists idx_orders_service_date on public.orders(service_date);
 create unique index if not exists idx_orders_archive_code on public.orders(archive_code) where archive_code is not null;
@@ -285,6 +305,8 @@ create index if not exists idx_trip_costs_order_id on public.trip_costs(order_id
 create index if not exists idx_payment_receipts_order_id on public.payment_receipts(order_id);
 create index if not exists idx_payment_receipts_customer_id on public.payment_receipts(customer_id);
 create index if not exists idx_supplier_payments_order_id on public.supplier_payments(order_id);
+create index if not exists idx_audit_logs_created_at on public.audit_logs(created_at desc);
+create index if not exists idx_audit_logs_entity on public.audit_logs(entity_type, entity_id);
 
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
@@ -328,6 +350,7 @@ alter table public.orders enable row level security;
 alter table public.trip_costs enable row level security;
 alter table public.payment_receipts enable row level security;
 alter table public.supplier_payments enable row level security;
+alter table public.audit_logs enable row level security;
 
 drop policy if exists "authenticated_read_profiles" on public.profiles;
 drop policy if exists "users_insert_own_profile" on public.profiles;
@@ -379,6 +402,8 @@ drop policy if exists "authenticated_read_supplier_payments" on public.supplier_
 drop policy if exists "role_write_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_update_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_delete_supplier_payments" on public.supplier_payments;
+drop policy if exists "role_read_audit_logs" on public.audit_logs;
+drop policy if exists "authenticated_write_audit_logs" on public.audit_logs;
 
 create policy "authenticated_read_profiles" on public.profiles for select to authenticated using (true);
 create policy "users_insert_own_profile" on public.profiles for insert to authenticated with check (auth.uid() = id);
@@ -425,13 +450,12 @@ create policy "role_delete_trip_costs" on public.trip_costs for delete to authen
 create policy "authenticated_read_payment_receipts" on public.payment_receipts for select to authenticated using (true);
 create policy "role_write_payment_receipts" on public.payment_receipts for insert to authenticated with check (public.current_app_role() in ('admin', 'finance'));
 create policy "role_update_payment_receipts" on public.payment_receipts for update to authenticated using (public.current_app_role() in ('admin', 'finance')) with check (public.current_app_role() in ('admin', 'finance'));
-create policy "role_delete_payment_receipts" on public.payment_receipts for delete to authenticated using (public.current_app_role() in ('admin', 'finance'));
 create policy "authenticated_read_supplier_payments" on public.supplier_payments for select to authenticated using (true);
 create policy "role_write_supplier_payments" on public.supplier_payments for insert to authenticated with check (public.current_app_role() in ('admin', 'finance'));
 create policy "role_update_supplier_payments" on public.supplier_payments for update to authenticated using (public.current_app_role() in ('admin', 'finance')) with check (public.current_app_role() in ('admin', 'finance'));
-create policy "role_delete_supplier_payments" on public.supplier_payments for delete to authenticated using (public.current_app_role() in ('admin', 'finance'));
+create policy "role_read_audit_logs" on public.audit_logs for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'finance'));
+create policy "authenticated_write_audit_logs" on public.audit_logs for insert to authenticated with check (auth.uid() = actor_id);
 
 -- TODO:
 -- 1. Extend role-aware write policies to customers, quotations, vehicles and staff masters
--- 2. Add audit logs for sensitive updates
--- 3. Add seed data for development/staging
+-- 2. Add seed data for development/staging

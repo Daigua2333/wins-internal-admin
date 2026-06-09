@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { createOrder } from "@/app/(dashboard)/orders/actions";
 import type { OrderCreateOption } from "@/lib/loaders/admin";
 import { FormSection } from "@/components/ui/form-section";
@@ -36,6 +38,10 @@ export function OrderCreatePanel({
   targetGrossMarginRate,
   variant = "card",
 }: OrderCreatePanelProps) {
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId);
+  const customerRequirements = selectedCustomer?.requirements ?? [];
+
   const content = (
     <div className="space-y-4">
       {feedback ? (
@@ -70,6 +76,8 @@ export function OrderCreatePanel({
                 <label className="mb-2 block text-sm font-medium text-slate-700">客户</label>
                 <select
                   name="customerId"
+                  value={selectedCustomerId}
+                  onChange={(event) => setSelectedCustomerId(event.target.value)}
                   disabled={!canWriteOrders}
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -80,6 +88,21 @@ export function OrderCreatePanel({
                     </option>
                   ))}
                 </select>
+                {customerRequirements.length ? (
+                  <div className="mt-3 space-y-2 rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950">
+                    <p className="font-medium">该客户有 {customerRequirements.length} 项未完成合作要求</p>
+                    {customerRequirements.map((requirement) => (
+                      <div key={requirement.id} className="rounded-xl border border-amber-200/80 bg-white/70 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{requirement.title}</p>
+                          <span className="text-xs text-amber-800">{requirement.priorityLabel} · 截止 {requirement.dueOnLabel}</span>
+                        </div>
+                        {requirement.description ? <p className="mt-1 text-xs leading-5 text-amber-900/80">{requirement.description}</p> : null}
+                      </div>
+                    ))}
+                    <p className="text-xs leading-5 text-amber-800">创建后会把当前要求快照写入订单备注，方便调度和执行人员复核。</p>
+                  </div>
+                ) : null}
               </div>
 
               <div>
