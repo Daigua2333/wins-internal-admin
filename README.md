@@ -26,6 +26,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 
 ## Latest Update
 
+- `系统设置 / 角色权限` 已升级为可视化访问控制工作台：支持岗位角色卡、职责说明、模块权限矩阵、账号健康度、成员搜索与筛选，并增加最后管理员保护；普通用户自助修改 `profiles` 角色的 RLS 通道已关闭，主要业务表读取与 Dashboard 内容也会按岗位角色收紧。
 - `客户管理` 已重构为一级档案总览与独立二级客户档案：客户支持长期合作、短期合作、一次性客户分类，新增公司介绍、微信、LINE；详情页集中维护跟进、历史订单、报价和可追踪的合作需求任务。
 - `报价 / 成本利润 / 回款对账` 已进一步收紧为实用工作台：报价支持删除与转订单，利润页可搜索订单并跳转维护成本或查看对账，回款和供应商付款支持删除错误流水；真实 Supabase 空数据不再显示虚假摘要数字。
 - `司机 / 车辆管理` 已升级为统一的司机车辆匹配与月度排班系统：司机档案支持微信、LINE、自定义颜色、月出勤天数和一对一默认车辆；司机页与车辆页可按月份查看每天的司机、线路与车辆，并可随时覆盖当日匹配。安全评分已从界面移除，改为独立事故安全记录。
@@ -79,6 +80,7 @@ WINS International Travel Group 的公司内部管理后台项目。
 正式上线手册：
 
 - [docs/deploy-vercel.md](/Users/jiaxinli/Desktop/公司管理系统/docs/deploy-vercel.md)
+- [docs/roles-and-permissions.md](/Users/jiaxinli/Desktop/公司管理系统/docs/roles-and-permissions.md)
 
 ## 当前完成内容
 

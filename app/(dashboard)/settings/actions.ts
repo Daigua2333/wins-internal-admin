@@ -40,7 +40,28 @@ export async function updateProfileRole(formData: FormData) {
     redirect("/settings?error=supabase_not_configured");
   }
 
+  const currentUser = await getCurrentUser();
+  if (currentUser?.id === profileId) {
+    redirect("/settings?error=self_role_change_forbidden");
+  }
+
   const supabase = await createClient();
+  const { data: targetProfile, error: targetProfileError } = await supabase
+    .from("profiles")
+    .select("role, active")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (targetProfileError || !targetProfile) {
+    redirect("/settings?error=invalid_profile");
+  }
+
+  const target = targetProfile as { role: AppRole; active: boolean };
+
+  if (target.role === "admin" && target.active && role !== "admin" && (await countActiveAdmins(supabase)) <= 1) {
+    redirect("/settings?error=last_admin_protected");
+  }
+
   const payload: Database["public"]["Tables"]["profiles"]["Update"] = {
     role: role as AppRole,
   };
@@ -52,14 +73,13 @@ export async function updateProfileRole(formData: FormData) {
     redirect("/settings?error=role_update_failed");
   }
 
-  const currentUser = await getCurrentUser();
   await writeAuditLog(supabase, {
     actorId: currentUser?.id,
     action: "update",
     entityType: "profile",
     entityId: profileId,
     summary: `更新账号角色为 ${role}`,
-    metadata: { role },
+    metadata: { previousRole: target.role, role },
   });
 
   revalidatePath("/settings");
@@ -75,8 +95,8 @@ export async function updateProfileActive(formData: FormData) {
 
   const profileId = String(formData.get("profileId") ?? "");
   const nextActive = String(formData.get("active") ?? "") === "true";
-  const currentUser = await createClient().then((supabase) => supabase.auth.getUser());
-  const currentUserId = currentUser.data.user?.id;
+  const currentUser = await getCurrentUser();
+  const currentUserId = currentUser?.id;
 
   if (!profileId) {
     redirect("/settings?error=invalid_profile");
@@ -91,6 +111,22 @@ export async function updateProfileActive(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const { data: targetProfile, error: targetProfileError } = await supabase
+    .from("profiles")
+    .select("role, active")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (targetProfileError || !targetProfile) {
+    redirect("/settings?error=invalid_profile");
+  }
+
+  const target = targetProfile as { role: AppRole; active: boolean };
+
+  if (!nextActive && target.role === "admin" && target.active && (await countActiveAdmins(supabase)) <= 1) {
+    redirect("/settings?error=last_admin_protected");
+  }
+
   const payload: Database["public"]["Tables"]["profiles"]["Update"] = {
     active: nextActive,
   };
@@ -112,6 +148,21 @@ export async function updateProfileActive(formData: FormData) {
 
   revalidatePath("/settings");
   redirect(`/settings?message=${nextActive ? "account_enabled" : "account_disabled"}`);
+}
+
+async function countActiveAdmins(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const { count, error } = await supabase
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "admin")
+    .eq("active", true);
+
+  if (error) {
+    console.error("[settings:count-active-admins]", error.message);
+    redirect("/settings?error=profile_status_update_failed");
+  }
+
+  return count ?? 0;
 }
 
 export async function updateCompanyProfile(formData: FormData) {

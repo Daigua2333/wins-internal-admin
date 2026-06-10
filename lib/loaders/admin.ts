@@ -1995,13 +1995,7 @@ export async function getRoleManagementProfiles(): Promise<Profile[]> {
     return teamProfiles;
   }
 
-  const data = await profiles.list({ limit: 50 });
-
-  if (!data.length) {
-    return teamProfiles;
-  }
-
-  return data;
+  return profiles.list({ limit: 100 });
 }
 
 export async function getSettingsWorkspaceSnapshot(): Promise<SettingsWorkspaceSnapshot> {

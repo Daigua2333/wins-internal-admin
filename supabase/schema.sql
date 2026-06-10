@@ -55,7 +55,32 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce((select role from public.profiles where id = auth.uid()), '');
+  select coalesce((select role from public.profiles where id = auth.uid() and active = true), '');
+$$;
+
+create or replace function public.protect_last_active_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.role = 'admin' and old.active = true and (new.role <> 'admin' or new.active = false) then
+    perform pg_advisory_xact_lock(hashtext('wins:active-admin'));
+
+    if not exists (
+      select 1
+      from public.profiles
+      where role = 'admin'
+        and active = true
+        and id <> old.id
+    ) then
+      raise exception 'cannot disable or demote the last active admin';
+    end if;
+  end if;
+
+  return new;
+end;
 $$;
 
 create table if not exists public.customers (
@@ -318,6 +343,8 @@ create index if not exists idx_audit_logs_entity on public.audit_logs(entity_typ
 
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
+drop trigger if exists protect_last_active_admin on public.profiles;
+create trigger protect_last_active_admin before update on public.profiles for each row execute function public.protect_last_active_admin();
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
 drop trigger if exists set_customers_updated_at on public.customers;
@@ -361,29 +388,37 @@ alter table public.supplier_payments enable row level security;
 alter table public.audit_logs enable row level security;
 
 drop policy if exists "authenticated_read_profiles" on public.profiles;
+drop policy if exists "role_read_profiles" on public.profiles;
+drop policy if exists "users_read_own_profile" on public.profiles;
 drop policy if exists "users_insert_own_profile" on public.profiles;
 drop policy if exists "users_update_own_profile" on public.profiles;
 drop policy if exists "admins_update_all_profiles" on public.profiles;
 drop policy if exists "authenticated_read_customers" on public.customers;
+drop policy if exists "role_read_customers" on public.customers;
 drop policy if exists "role_write_customers" on public.customers;
 drop policy if exists "role_update_customers" on public.customers;
 drop policy if exists "authenticated_read_customer_collaboration_tasks" on public.customer_collaboration_tasks;
+drop policy if exists "role_read_customer_collaboration_tasks" on public.customer_collaboration_tasks;
 drop policy if exists "role_write_customer_collaboration_tasks" on public.customer_collaboration_tasks;
 drop policy if exists "role_update_customer_collaboration_tasks" on public.customer_collaboration_tasks;
 drop policy if exists "role_delete_customer_collaboration_tasks" on public.customer_collaboration_tasks;
 drop policy if exists "authenticated_read_vehicles" on public.vehicles;
+drop policy if exists "role_read_vehicles" on public.vehicles;
 drop policy if exists "role_write_vehicles" on public.vehicles;
 drop policy if exists "role_update_vehicles" on public.vehicles;
 drop policy if exists "role_delete_vehicles" on public.vehicles;
 drop policy if exists "authenticated_read_drivers" on public.drivers;
+drop policy if exists "role_read_drivers" on public.drivers;
 drop policy if exists "role_write_drivers" on public.drivers;
 drop policy if exists "role_update_drivers" on public.drivers;
 drop policy if exists "role_delete_drivers" on public.drivers;
 drop policy if exists "authenticated_read_driver_incidents" on public.driver_incidents;
+drop policy if exists "role_read_driver_incidents" on public.driver_incidents;
 drop policy if exists "role_write_driver_incidents" on public.driver_incidents;
 drop policy if exists "role_update_driver_incidents" on public.driver_incidents;
 drop policy if exists "role_delete_driver_incidents" on public.driver_incidents;
 drop policy if exists "authenticated_read_guides" on public.guides;
+drop policy if exists "role_read_guides" on public.guides;
 drop policy if exists "role_write_guides" on public.guides;
 drop policy if exists "role_update_guides" on public.guides;
 drop policy if exists "role_delete_guides" on public.guides;
@@ -391,11 +426,14 @@ drop policy if exists "admin_read_app_settings" on public.app_settings;
 drop policy if exists "admin_write_app_settings" on public.app_settings;
 drop policy if exists "admin_update_app_settings" on public.app_settings;
 drop policy if exists "authenticated_read_quotations" on public.quotations;
+drop policy if exists "role_read_quotations" on public.quotations;
 drop policy if exists "role_write_quotations" on public.quotations;
 drop policy if exists "role_update_quotations" on public.quotations;
 drop policy if exists "role_delete_quotations" on public.quotations;
 drop policy if exists "authenticated_read_orders" on public.orders;
 drop policy if exists "authenticated_read_trip_costs" on public.trip_costs;
+drop policy if exists "role_read_orders" on public.orders;
+drop policy if exists "role_read_trip_costs" on public.trip_costs;
 drop policy if exists "role_write_orders" on public.orders;
 drop policy if exists "role_update_orders" on public.orders;
 drop policy if exists "role_delete_orders" on public.orders;
@@ -403,67 +441,68 @@ drop policy if exists "role_write_trip_costs" on public.trip_costs;
 drop policy if exists "role_update_trip_costs" on public.trip_costs;
 drop policy if exists "role_delete_trip_costs" on public.trip_costs;
 drop policy if exists "authenticated_read_payment_receipts" on public.payment_receipts;
+drop policy if exists "role_read_payment_receipts" on public.payment_receipts;
 drop policy if exists "role_write_payment_receipts" on public.payment_receipts;
 drop policy if exists "role_update_payment_receipts" on public.payment_receipts;
 drop policy if exists "role_delete_payment_receipts" on public.payment_receipts;
 drop policy if exists "authenticated_read_supplier_payments" on public.supplier_payments;
+drop policy if exists "role_read_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_write_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_update_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_delete_supplier_payments" on public.supplier_payments;
 drop policy if exists "role_read_audit_logs" on public.audit_logs;
 drop policy if exists "authenticated_write_audit_logs" on public.audit_logs;
 
-create policy "authenticated_read_profiles" on public.profiles for select to authenticated using (true);
-create policy "users_insert_own_profile" on public.profiles for insert to authenticated with check (auth.uid() = id);
-create policy "users_update_own_profile" on public.profiles for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);
+create policy "role_read_profiles" on public.profiles for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales', 'finance', 'dispatch'));
+create policy "users_read_own_profile" on public.profiles for select to authenticated using (auth.uid() = id);
 create policy "admins_update_all_profiles" on public.profiles for update to authenticated using (public.current_app_role() = 'admin') with check (public.current_app_role() = 'admin');
-create policy "authenticated_read_customers" on public.customers for select to authenticated using (true);
+create policy "role_read_customers" on public.customers for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales', 'finance', 'dispatch'));
 create policy "role_write_customers" on public.customers for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_update_customers" on public.customers for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
-create policy "authenticated_read_customer_collaboration_tasks" on public.customer_collaboration_tasks for select to authenticated using (true);
+create policy "role_read_customer_collaboration_tasks" on public.customer_collaboration_tasks for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_write_customer_collaboration_tasks" on public.customer_collaboration_tasks for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_update_customer_collaboration_tasks" on public.customer_collaboration_tasks for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_delete_customer_collaboration_tasks" on public.customer_collaboration_tasks for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales'));
-create policy "authenticated_read_vehicles" on public.vehicles for select to authenticated using (true);
+create policy "role_read_vehicles" on public.vehicles for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_vehicles" on public.vehicles for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_vehicles" on public.vehicles for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_vehicles" on public.vehicles for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
-create policy "authenticated_read_drivers" on public.drivers for select to authenticated using (true);
+create policy "role_read_drivers" on public.drivers for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_drivers" on public.drivers for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_drivers" on public.drivers for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_drivers" on public.drivers for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
-create policy "authenticated_read_driver_incidents" on public.driver_incidents for select to authenticated using (true);
+create policy "role_read_driver_incidents" on public.driver_incidents for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_driver_incidents" on public.driver_incidents for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_driver_incidents" on public.driver_incidents for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_driver_incidents" on public.driver_incidents for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
-create policy "authenticated_read_guides" on public.guides for select to authenticated using (true);
+create policy "role_read_guides" on public.guides for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_guides" on public.guides for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_guides" on public.guides for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_guides" on public.guides for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "admin_read_app_settings" on public.app_settings for select to authenticated using (public.current_app_role() = 'admin');
 create policy "admin_write_app_settings" on public.app_settings for insert to authenticated with check (public.current_app_role() = 'admin');
 create policy "admin_update_app_settings" on public.app_settings for update to authenticated using (public.current_app_role() = 'admin') with check (public.current_app_role() = 'admin');
-create policy "authenticated_read_quotations" on public.quotations for select to authenticated using (true);
+create policy "role_read_quotations" on public.quotations for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales', 'finance'));
 create policy "role_write_quotations" on public.quotations for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_update_quotations" on public.quotations for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales')) with check (public.current_app_role() in ('admin', 'operations', 'sales'));
 create policy "role_delete_quotations" on public.quotations for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales'));
-create policy "authenticated_read_orders" on public.orders for select to authenticated using (true);
-create policy "authenticated_read_trip_costs" on public.trip_costs for select to authenticated using (true);
+create policy "role_read_orders" on public.orders for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'sales', 'finance', 'dispatch'));
+create policy "role_read_trip_costs" on public.trip_costs for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'finance', 'dispatch'));
 create policy "role_write_orders" on public.orders for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_orders" on public.orders for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_orders" on public.orders for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_write_trip_costs" on public.trip_costs for insert to authenticated with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_update_trip_costs" on public.trip_costs for update to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch')) with check (public.current_app_role() in ('admin', 'operations', 'dispatch'));
 create policy "role_delete_trip_costs" on public.trip_costs for delete to authenticated using (public.current_app_role() in ('admin', 'operations', 'dispatch'));
-create policy "authenticated_read_payment_receipts" on public.payment_receipts for select to authenticated using (true);
+create policy "role_read_payment_receipts" on public.payment_receipts for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'finance'));
 create policy "role_write_payment_receipts" on public.payment_receipts for insert to authenticated with check (public.current_app_role() in ('admin', 'finance'));
 create policy "role_update_payment_receipts" on public.payment_receipts for update to authenticated using (public.current_app_role() in ('admin', 'finance')) with check (public.current_app_role() in ('admin', 'finance'));
-create policy "authenticated_read_supplier_payments" on public.supplier_payments for select to authenticated using (true);
+create policy "role_read_supplier_payments" on public.supplier_payments for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'finance'));
 create policy "role_write_supplier_payments" on public.supplier_payments for insert to authenticated with check (public.current_app_role() in ('admin', 'finance'));
 create policy "role_update_supplier_payments" on public.supplier_payments for update to authenticated using (public.current_app_role() in ('admin', 'finance')) with check (public.current_app_role() in ('admin', 'finance'));
 create policy "role_read_audit_logs" on public.audit_logs for select to authenticated using (public.current_app_role() in ('admin', 'operations', 'finance'));
-create policy "authenticated_write_audit_logs" on public.audit_logs for insert to authenticated with check (auth.uid() = actor_id);
+create policy "authenticated_write_audit_logs" on public.audit_logs for insert to authenticated with check (auth.uid() = actor_id and public.current_app_role() <> '');
 
 -- TODO:
--- 1. Extend role-aware write policies to customers, quotations, vehicles and staff masters
--- 2. Add seed data for development/staging
+-- 1. Split order commercial figures into a dedicated financial table if field-level secrecy is required
+-- 2. Add automated RLS regression tests for every app role

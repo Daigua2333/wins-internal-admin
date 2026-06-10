@@ -3,15 +3,12 @@ import { hasPermission, getCurrentUser } from "@/lib/auth/session";
 import { AccessDeniedCard } from "@/components/ui/access-denied-card";
 import { PageIntro } from "@/components/layout/page-intro";
 import { CurrentRoleCard } from "@/components/ui/current-role-card";
-import { ModuleToolbar } from "@/components/ui/module-toolbar";
 import { SettingsControlCenter } from "@/components/settings/settings-control-center";
 import { RoleManagementPanel } from "@/components/ui/role-management-panel";
 import { SupabaseHealthCard } from "@/components/ui/supabase-health-card";
 import { SetupNextStepsCard } from "@/components/ui/setup-next-steps-card";
 import { SupabaseStatusCard } from "@/components/ui/supabase-status-card";
-import { SummaryGrid } from "@/components/ui/summary-grid";
 import { getRoleManagementProfiles, getSettingsWorkspaceSnapshot } from "@/lib/loaders/admin";
-import { settingsSummary } from "@/lib/mock/data";
 
 type SettingsPageProps = {
   searchParams?: Promise<{
@@ -39,24 +36,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   return (
     <>
       <PageIntro
-        eyebrow="System Settings"
-        title="系统设置页面"
-        description="用于管理公司基础信息、角色权限、通知规则、品牌配置与部署相关参数。当前先做出结构，便于后续逐步接入后台配置能力。"
+        eyebrow="Access Control & Settings"
+        title="权限与系统设置"
+        description="集中管理内部账号、岗位角色、模块访问边界和公司运行参数。角色调整会同时影响导航、页面操作和 Supabase 数据写入权限。"
       />
 
-      <SummaryGrid items={settingsSummary} />
-
-      <ModuleToolbar
-        searchPlaceholder="搜索配置项、角色名称、通知规则"
-        filters={["权限角色", "通知规则", "公司信息", "部署配置"]}
-        primaryAction="新增配置项"
-      />
-
-      <SupabaseStatusCard />
-      <SupabaseHealthCard />
-      <CurrentRoleCard />
       <RoleManagementPanel profiles={profiles} currentUserId={user?.id} feedback={feedback} />
-      <SetupNextStepsCard />
+      <CurrentRoleCard />
+      <SettingsControlCenter snapshot={settingsSnapshot} />
 
       <div className="flex justify-end">
         <form action={signOut}>
@@ -66,7 +53,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </form>
       </div>
 
-      <SettingsControlCenter snapshot={settingsSnapshot} />
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SupabaseStatusCard />
+        <SupabaseHealthCard />
+        <SetupNextStepsCard />
+      </section>
     </>
   );
 }
@@ -153,6 +144,20 @@ function getSettingsFeedback(params: { message?: string; error?: string; detail?
     return {
       type: "error" as const,
       message: "不能停用当前正在操作的登录账号，请使用其他管理员账号执行此操作。",
+    };
+  }
+
+  if (params.error === "self_role_change_forbidden") {
+    return {
+      type: "error" as const,
+      message: "为避免当前账号立即失去管理权限，不能直接修改自己的角色。请使用另一名管理员操作。",
+    };
+  }
+
+  if (params.error === "last_admin_protected") {
+    return {
+      type: "error" as const,
+      message: "这是最后一个启用中的管理员账号。请先启用或分配另一名管理员，再进行停用或角色调整。",
     };
   }
 

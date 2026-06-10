@@ -5,6 +5,7 @@ import { PageIntro } from "@/components/layout/page-intro";
 import { DataTable } from "@/components/ui/data-table";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatCard } from "@/components/ui/stat-card";
+import { hasPermission } from "@/lib/auth/session";
 import { getNotificationSettings } from "@/lib/settings/runtime";
 import {
   getDashboardActionItems,
@@ -17,16 +18,28 @@ import {
 } from "@/lib/loaders/admin";
 
 export default async function DashboardPage() {
+  const [canReadVehicles, canReadCustomers, canReadQuotations, canReadProfit, canReadFinance] = await Promise.all([
+    hasPermission("vehicles.read"),
+    hasPermission("customers.read"),
+    hasPermission("quotations.read"),
+    hasPermission("profit.read"),
+    hasPermission("finance.read"),
+  ]);
+  const access = { canReadVehicles, canReadCustomers, canReadQuotations, canReadProfit, canReadFinance };
   const [stats, snapshots, pipelineCards, actionItems, notificationSettings, profitSeries, recentOrders] = await Promise.all([
     getDashboardStats(),
     getDashboardSnapshots(),
     getDashboardPipelineCards(),
     getDashboardActionItems(),
     getNotificationSettings(),
-    getDashboardProfitSeries(),
+    canReadProfit ? getDashboardProfitSeries() : Promise.resolve([]),
     getDashboardRecentOrders(),
   ]);
   const focusItems = await getDashboardFocusItems(notificationSettings.reminderLeadDays);
+  const visibleStats = stats.filter((item) => !item.href || canAccessDashboardHref(item.href, access));
+  const visibleSnapshots = snapshots.filter((item) => !item.href || canAccessDashboardHref(item.href, access));
+  const visibleActionItems = actionItems.filter((item) => canAccessDashboardHref(item.href, access));
+  const visibleFocusItems = focusItems.filter((item) => canAccessDashboardHref(item.href, access));
 
   return (
     <>
@@ -37,7 +50,7 @@ export default async function DashboardPage() {
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
+        {visibleStats.map((stat) => (
           <StatCard key={stat.title} {...stat} />
         ))}
       </section>
@@ -48,7 +61,7 @@ export default async function DashboardPage() {
           description="把今日接机、运力、待处理报价三类运营信息压缩成高识别度概览，方便主管在移动端也能快速判断优先级。"
         >
           <div className="grid gap-4 md:grid-cols-3">
-            {snapshots.map((item) => (
+            {visibleSnapshots.map((item) => (
               <Link
                 key={item.title}
                 href={item.href ?? "/dashboard"}
@@ -96,14 +109,16 @@ export default async function DashboardPage() {
         </SectionCard>
       </section>
 
-      <section className="grid gap-4 2xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard title="利润趋势" description="基于当前订单营收与成本聚合近 6 个月走势，点击上方平均毛利率可进入利润工作台。">
-          <ProfitOverview data={profitSeries} />
-        </SectionCard>
+      <section className={`grid gap-4 ${canReadProfit ? "2xl:grid-cols-[1.1fr_0.9fr]" : ""}`}>
+        {canReadProfit ? (
+          <SectionCard title="利润趋势" description="基于当前订单营收与成本聚合近 6 个月走势，点击上方平均毛利率可进入利润工作台。">
+            <ProfitOverview data={profitSeries} />
+          </SectionCard>
+        ) : null}
 
         <SectionCard title="今日重点提醒" description="用于展示车辆保养、订单待确认、导游排班冲突等关键消息。">
           <div className="space-y-3">
-            {focusItems.map((item) => (
+            {visibleFocusItems.map((item) => (
               <Link
                 key={`${item.time}-${item.title}`}
                 href={item.href}
@@ -130,7 +145,7 @@ export default async function DashboardPage() {
 
         <SectionCard title="今日协同建议" description="把最常见的运营动作放在首页，形成更像真实工作台的操作感。">
           <div className="space-y-3">
-            {actionItems.map((item) => (
+            {visibleActionItems.map((item) => (
               <Link
                 key={item.title}
                 href={item.href}
@@ -151,4 +166,21 @@ export default async function DashboardPage() {
       </section>
     </>
   );
+}
+
+type DashboardAccess = {
+  canReadVehicles: boolean;
+  canReadCustomers: boolean;
+  canReadQuotations: boolean;
+  canReadProfit: boolean;
+  canReadFinance: boolean;
+};
+
+function canAccessDashboardHref(href: string, access: DashboardAccess) {
+  if (href.startsWith("/fleet") || href.startsWith("/drivers") || href.startsWith("/guides")) return access.canReadVehicles;
+  if (href.startsWith("/customers")) return access.canReadCustomers;
+  if (href.startsWith("/pricing")) return access.canReadQuotations;
+  if (href.startsWith("/profit")) return access.canReadProfit;
+  if (href.startsWith("/finance")) return access.canReadFinance;
+  return true;
 }
