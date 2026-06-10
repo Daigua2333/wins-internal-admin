@@ -79,7 +79,7 @@ export function DashboardShell({
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white"
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/90 text-slate-600 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
                 >
                   <X className="h-4 w-4" />
                 </button>
