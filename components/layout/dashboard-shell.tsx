@@ -61,7 +61,7 @@ export function DashboardShell({
 
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
-      <div className="mx-auto grid max-w-[1600px] gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="mx-auto grid max-w-[1640px] gap-4 xl:grid-cols-[292px_minmax(0,1fr)]">
         <div className="hidden xl:sticky xl:top-4 xl:block xl:h-[calc(100vh-2rem)]">
           <Sidebar items={navItems} roleLabel={roleLabel} />
         </div>
