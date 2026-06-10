@@ -15,11 +15,12 @@ import { EmptyStateCard } from "@/components/ui/empty-state-card";
 import { PendingSubmitButton } from "@/components/ui/pending-submit-button";
 import { SectionCard } from "@/components/ui/section-card";
 import { StatStrip } from "@/components/ui/stat-strip";
-import type { CustomerCollaborationTaskRecord, CustomerOperationsRecord } from "@/lib/loaders/admin";
+import type { CustomerCollaborationTaskRecord, CustomerOperationsRecord, OrderCreateOption } from "@/lib/loaders/admin";
 
 type CustomerDetailWorkspaceProps = {
   customer: CustomerOperationsRecord;
   canWriteCustomers: boolean;
+  assigneeOptions: OrderCreateOption[];
 };
 
 const statusOptions = [
@@ -29,7 +30,7 @@ const statusOptions = [
   { value: "inactive", label: "已停用" },
 ];
 
-export function CustomerDetailWorkspace({ customer, canWriteCustomers }: CustomerDetailWorkspaceProps) {
+export function CustomerDetailWorkspace({ customer, canWriteCustomers, assigneeOptions }: CustomerDetailWorkspaceProps) {
   const openTasks = customer.collaborationTasks.filter((task) => !["completed", "cancelled"].includes(task.status));
 
   return (
@@ -120,17 +121,18 @@ export function CustomerDetailWorkspace({ customer, canWriteCustomers }: Custome
             <form action={createCustomerCollaborationTask} className="space-y-3 rounded-2xl border border-cyan-200 bg-cyan-50/50 p-4">
               <input type="hidden" name="customerId" value={customer.id} />
               <Field label="合作需求 / 任务"><input name="title" placeholder="例如：确认巴士 Wi-Fi 配置" disabled={!canWriteCustomers} className={inputClassName} /></Field>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <Field label="状态"><TaskStatusSelect disabled={!canWriteCustomers} /></Field>
                 <Field label="优先级"><TaskPrioritySelect disabled={!canWriteCustomers} /></Field>
                 <Field label="截止日期"><input type="date" name="dueOn" disabled={!canWriteCustomers} className={inputClassName} /></Field>
+                <Field label="负责人"><TaskAssigneeSelect options={assigneeOptions} disabled={!canWriteCustomers} /></Field>
               </div>
               <Field label="说明"><textarea name="description" rows={3} disabled={!canWriteCustomers} className={textareaClassName} /></Field>
               <div className="flex justify-end"><Submit disabled={!canWriteCustomers}>添加合作任务</Submit></div>
             </form>
             <div className="mt-4 space-y-3">
               {customer.collaborationTasks.length ? customer.collaborationTasks.map((task) => (
-                <TaskEditor key={task.id} customerId={customer.id} task={task} canWrite={canWriteCustomers} />
+                <TaskEditor key={task.id} customerId={customer.id} task={task} canWrite={canWriteCustomers} assigneeOptions={assigneeOptions} />
               )) : <EmptyStateCard title="暂无合作需求任务" description="客户提出特殊要求时，在这里建立任务并持续更新进度。" />}
             </div>
           </SectionCard>
@@ -167,20 +169,22 @@ export function CustomerDetailWorkspace({ customer, canWriteCustomers }: Custome
   );
 }
 
-function TaskEditor({ customerId, task, canWrite }: { customerId: string; task: CustomerCollaborationTaskRecord; canWrite: boolean }) {
+function TaskEditor({ customerId, task, canWrite, assigneeOptions }: { customerId: string; task: CustomerCollaborationTaskRecord; canWrite: boolean; assigneeOptions: OrderCreateOption[] }) {
   return (
     <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
       <form action={updateCustomerCollaborationTask} className="space-y-3">
         <input type="hidden" name="customerId" value={customerId} />
         <input type="hidden" name="taskId" value={task.id} />
-        <div className="flex flex-wrap items-center gap-2"><Badge label={task.priorityLabel} tone={task.priority === "urgent" || task.priority === "high" ? "warning" : "neutral"} /><Badge label={task.statusLabel} tone={task.status === "completed" ? "success" : "info"} /><span className="text-xs text-slate-500">截止 {task.dueOnLabel}</span></div>
+        <div className="flex flex-wrap items-center gap-2"><Badge label={task.priorityLabel} tone={task.priority === "urgent" || task.priority === "high" ? "warning" : "neutral"} /><Badge label={task.statusLabel} tone={task.status === "completed" ? "success" : "info"} /><span className="text-xs text-slate-500">负责人 {task.assigneeName}</span><span className="text-xs text-slate-500">截止 {task.dueOnLabel}</span></div>
         <Field label="任务"><input name="title" defaultValue={task.title} disabled={!canWrite} className={inputClassName} /></Field>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Field label="状态"><TaskStatusSelect defaultValue={task.status} disabled={!canWrite} /></Field>
           <Field label="优先级"><TaskPrioritySelect defaultValue={task.priority} disabled={!canWrite} /></Field>
           <Field label="截止日期"><input type="date" name="dueOn" defaultValue={task.dueOn} disabled={!canWrite} className={inputClassName} /></Field>
+          <Field label="负责人"><TaskAssigneeSelect options={assigneeOptions} defaultValue={task.assigneeId} disabled={!canWrite} /></Field>
         </div>
         <Field label="说明"><textarea name="description" rows={2} defaultValue={task.description} disabled={!canWrite} className={textareaClassName} /></Field>
+        {task.completedAtLabel ? <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">完成于 {task.completedAtLabel}{task.completedByName ? ` · ${task.completedByName}` : ""}</p> : null}
         <div className="flex flex-wrap justify-end gap-2"><Submit disabled={!canWrite}>保存进度</Submit></div>
       </form>
       <form id={`delete-customer-task-${task.id}`} action={deleteCustomerCollaborationTask}>
@@ -200,6 +204,15 @@ function TaskStatusSelect({ defaultValue = "todo", disabled }: { defaultValue?: 
 
 function TaskPrioritySelect({ defaultValue = "normal", disabled }: { defaultValue?: string; disabled: boolean }) {
   return <select name="priority" defaultValue={defaultValue} disabled={disabled} className={inputClassName}><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select>;
+}
+
+function TaskAssigneeSelect({ options, defaultValue = "", disabled }: { options: OrderCreateOption[]; defaultValue?: string; disabled: boolean }) {
+  return (
+    <select name="assigneeProfileId" defaultValue={defaultValue} disabled={disabled} className={inputClassName}>
+      <option value="">待分配</option>
+      {options.map((option) => <option key={option.id} value={option.id}>{option.label}{option.hint ? ` · ${option.hint}` : ""}</option>)}
+    </select>
+  );
 }
 
 function Submit({ children, disabled }: { children: React.ReactNode; disabled: boolean }) {

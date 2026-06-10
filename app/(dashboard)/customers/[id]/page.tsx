@@ -4,7 +4,7 @@ import { CustomerDetailWorkspace } from "@/components/customers/customer-detail-
 import { DashboardToast } from "@/components/ui/dashboard-toast";
 import { AccessDeniedCard } from "@/components/ui/access-denied-card";
 import { hasPermission } from "@/lib/auth/session";
-import { getCustomerOperationsRecords } from "@/lib/loaders/admin";
+import { getCustomerOperationsRecords, getRoleManagementProfiles } from "@/lib/loaders/admin";
 
 type CustomerDetailPageProps = {
   params: Promise<{ id: string }>;
@@ -12,10 +12,11 @@ type CustomerDetailPageProps = {
 };
 
 export default async function CustomerDetailPage({ params, searchParams }: CustomerDetailPageProps) {
-  const [{ id }, query, records, canReadCustomers, canWriteCustomers] = await Promise.all([
+  const [{ id }, query, records, profiles, canReadCustomers, canWriteCustomers] = await Promise.all([
     params,
     searchParams ?? Promise.resolve({}),
     getCustomerOperationsRecords(),
+    getRoleManagementProfiles(),
     hasPermission("customers.read"),
     hasPermission("customers.write"),
   ]);
@@ -28,7 +29,11 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
   return (
     <>
       <DashboardToast feedback={getFeedback(query)} />
-      <CustomerDetailWorkspace customer={customer} canWriteCustomers={canWriteCustomers} />
+      <CustomerDetailWorkspace
+        customer={customer}
+        canWriteCustomers={canWriteCustomers}
+        assigneeOptions={profiles.filter((profile) => profile.active).map((profile) => ({ id: profile.id, label: profile.full_name, hint: profile.email }))}
+      />
     </>
   );
 }

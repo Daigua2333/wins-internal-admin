@@ -100,30 +100,39 @@ export type Database = {
         Row: {
           id: string;
           customer_id: string;
+          assignee_profile_id: string | null;
           title: string;
           description: string | null;
           status: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
           priority: "low" | "normal" | "high" | "urgent";
           due_on: string | null;
+          completed_at: string | null;
+          completed_by: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           customer_id: string;
+          assignee_profile_id?: string | null;
           title: string;
           description?: string | null;
           status?: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
           priority?: "low" | "normal" | "high" | "urgent";
           due_on?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
         };
         Update: {
           customer_id?: string;
+          assignee_profile_id?: string | null;
           title?: string;
           description?: string | null;
           status?: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
           priority?: "low" | "normal" | "high" | "urgent";
           due_on?: string | null;
+          completed_at?: string | null;
+          completed_by?: string | null;
         };
         Relationships: [];
       };

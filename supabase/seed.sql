@@ -112,10 +112,11 @@ values
     '高端定制客户，适合测试高毛利小团和供应商付款。'
   );
 
-insert into public.customer_collaboration_tasks (customer_id, title, description, status, priority, due_on)
+insert into public.customer_collaboration_tasks (customer_id, assignee_profile_id, title, description, status, priority, due_on)
 values
   (
     (select id from public.customers where company_name = 'Tokyo One Day Repeat Tours' limit 1),
+    (select id from public.profiles where role = 'operations' and active = true order by created_at limit 1),
     '确认巴士 Wi-Fi 配置',
     '确认重复一日游执行车辆可提供稳定 Wi-Fi，并在出团前回传连接方式。',
     'in_progress',
@@ -124,6 +125,7 @@ values
   ),
   (
     (select id from public.customers where company_name = 'Hokkaido & Kanto Education Desk' limit 1),
+    (select id from public.profiles where role = 'sales' and active = true order by created_at limit 1),
     '准备研学团队中文资料',
     '整理中文行程单、集合点地图、保险说明和紧急联系方式。',
     'waiting',
@@ -132,6 +134,7 @@ values
   ),
   (
     (select id from public.customers where company_name = 'Asia Incentive Circle' limit 1),
+    (select id from public.profiles where role = 'operations' and active = true order by created_at limit 1),
     '确认 VIP 晚宴场地',
     '等待客户确认人数后锁定东京市区晚宴场地。',
     'todo',

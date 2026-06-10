@@ -17,5 +17,6 @@ export const NAVIGATION_ITEMS: NavConfigItem[] = [
   { title: "报价单管理", href: "/pricing", permission: "quotations.read" },
   { title: "成本与利润", href: "/profit", permission: "profit.read" },
   { title: "回款与对账", href: "/finance", permission: "finance.read" },
+  { title: "操作日志", href: "/audit", permission: "audit.read" },
   { title: "系统设置", href: "/settings", permission: "settings.read" },
 ];

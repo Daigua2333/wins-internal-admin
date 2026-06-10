@@ -334,6 +334,8 @@ export type CustomerOperationsRecord = {
 };
 export type CustomerCollaborationTaskRecord = {
   id: string;
+  assigneeId: string;
+  assigneeName: string;
   title: string;
   description: string;
   status: string;
@@ -342,6 +344,8 @@ export type CustomerCollaborationTaskRecord = {
   priorityLabel: string;
   dueOn: string;
   dueOnLabel: string;
+  completedAtLabel: string;
+  completedByName: string;
 };
 export type PricingOperationsRecord = {
   id: string;
@@ -560,11 +564,17 @@ export type SupplierPaymentRecord = {
 };
 export type AuditLogRecord = {
   id: string;
+  createdAt: string;
   createdAtLabel: string;
+  actorId: string;
   actorLabel: string;
+  action: string;
   actionLabel: string;
+  entityType: string;
   entityTypeLabel: string;
   summary: string;
+  metadataLabel: string;
+  href: string;
 };
 
 export async function getOrderWorkbenchRows(): Promise<UiRow[]> {
@@ -1089,7 +1099,19 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
       .order("updated_at", { ascending: false }),
     supabase
       .from("customer_collaboration_tasks")
-      .select("id,customer_id,title,description,status,priority,due_on")
+      .select(`
+        id,
+        customer_id,
+        assignee_profile_id,
+        title,
+        description,
+        status,
+        priority,
+        due_on,
+        completed_at,
+        assignee:profiles!customer_collaboration_tasks_assignee_profile_id_fkey(full_name,email),
+        completed_by_profile:profiles!customer_collaboration_tasks_completed_by_fkey(full_name,email)
+      `)
       .in("customer_id", customerIds)
       .order("due_on", { ascending: true }),
   ]);
@@ -1141,6 +1163,8 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
           .filter((task) => task.customer_id === customer.id)
           .map((task) => ({
             id: task.id,
+            assigneeId: task.assignee_profile_id ?? "",
+            assigneeName: task.assignee?.full_name ?? task.assignee?.email ?? "待分配",
             title: task.title,
             description: task.description ?? "",
             status: task.status,
@@ -1149,6 +1173,8 @@ export async function getCustomerOperationsRecords(): Promise<CustomerOperations
             priorityLabel: mapCollaborationTaskPriority(task.priority),
             dueOn: task.due_on ?? "",
             dueOnLabel: task.due_on ? formatDateDetail(task.due_on) : "未设置",
+            completedAtLabel: task.completed_at ? formatDateTimeDetail(task.completed_at) : "",
+            completedByName: task.completed_by_profile?.full_name ?? task.completed_by_profile?.email ?? "",
           })),
         orderTimeline: customerOrders.slice(0, 8).map((order) => ({
           id: order.id,
@@ -2169,7 +2195,7 @@ export async function getDashboardFocusItems(reminderLeadDays = 3): Promise<Dash
         .map((task) => ({
           time: task.dueOnLabel,
           title: `${customer.companyName} · ${task.title}`,
-          description: task.description || `${task.priorityLabel}优先级客户合作事项，进入客户档案继续处理。`,
+          description: `${task.assigneeName}负责 · ${task.description || `${task.priorityLabel}优先级客户合作事项，进入客户档案继续处理。`}`,
           href: `/customers/${customer.id}`,
           priority: task.priority,
           dueOn: task.dueOn,
@@ -2672,12 +2698,68 @@ export async function getRecentFinanceAuditLogs(limit = 12): Promise<AuditLogRec
 
   return (data as Array<any>).map((row) => ({
     id: row.id,
+    createdAt: row.created_at,
     createdAtLabel: formatDateTimeDetail(row.created_at),
+    actorId: "",
     actorLabel: row.actor?.full_name ?? row.actor?.email ?? "未知账号",
+    action: row.action,
     actionLabel: row.action === "void" ? "作废" : row.action === "create" ? "新增" : row.action === "update" ? "更新" : row.action,
+    entityType: row.entity_type,
     entityTypeLabel: row.entity_type === "payment_receipt" ? "客户回款" : "供应商付款",
     summary: row.summary,
+    metadataLabel: "",
+    href: "/finance",
   }));
+}
+
+export async function getAuditLogRecords(limit = 300): Promise<AuditLogRecord[]> {
+  const { enabled } = getRepositories();
+
+  if (!enabled) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("id,actor_id,action,entity_type,entity_id,summary,metadata,created_at,actor:profiles(full_name,email)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error || !data) {
+    if (error) console.error("[audit:list]", error.message);
+    return [];
+  }
+
+  return (data as Array<any>).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    createdAtLabel: formatDateTimeDetail(row.created_at),
+    actorId: row.actor_id ?? "",
+    actorLabel: row.actor?.full_name ?? row.actor?.email ?? "未知账号",
+    action: row.action,
+    actionLabel: mapAuditAction(row.action),
+    entityType: row.entity_type,
+    entityTypeLabel: mapAuditEntityType(row.entity_type),
+    summary: row.summary,
+    metadataLabel: formatAuditMetadata(row.metadata),
+    href: resolveAuditHref(row.entity_type, row.entity_id, row.metadata),
+  }));
+}
+
+export async function getAuditSummaryItems(): Promise<SummaryItem[]> {
+  const records = await getAuditLogRecords(300);
+  const today = formatTokyoDateKey(new Date());
+  const todayCount = records.filter((record) => formatTokyoDateKey(new Date(record.createdAt)) === today).length;
+  const voidCount = records.filter((record) => record.action === "void").length;
+  const actorCount = new Set(records.map((record) => record.actorId).filter(Boolean)).size;
+
+  return [
+    { title: "最近操作", value: `${formatNumber(records.length)} 条`, detail: "当前页面最多加载最近 300 条不可编辑操作日志" },
+    { title: "今日操作", value: `${formatNumber(todayCount)} 条`, detail: "按东京日期统计今天发生的关键操作" },
+    { title: "财务作废", value: `${formatNumber(voidCount)} 条`, detail: "所有作废动作均保留原因和操作人" },
+    { title: "操作账号", value: `${formatNumber(actorCount)} 人`, detail: "最近日志中参与操作的不同账号数量" },
+  ];
 }
 
 function mapOrderStatus(status: string) {
@@ -2996,6 +3078,8 @@ function buildMockCustomerCollaborationTasks(seed: number): CustomerCollaboratio
   return [
     {
       id: `mock-customer-task-${seed}-1`,
+      assigneeId: teamProfiles[seed % teamProfiles.length]?.id ?? "",
+      assigneeName: teamProfiles[seed % teamProfiles.length]?.full_name ?? "待分配",
       title: seed % 2 === 0 ? "确认巴士 Wi-Fi 配置" : "准备中文接待资料",
       description: seed % 2 === 0 ? "确认执行车辆可提供稳定 Wi-Fi，并在出团前回传连接方式。" : "整理中文行程单、集合点地图和紧急联系方式。",
       status: seed % 2 === 0 ? "in_progress" : "todo",
@@ -3004,6 +3088,8 @@ function buildMockCustomerCollaborationTasks(seed: number): CustomerCollaboratio
       priorityLabel: "高",
       dueOn: "2026-06-18",
       dueOnLabel: "2026年6月18日",
+      completedAtLabel: "",
+      completedByName: "",
     },
   ];
 }
@@ -3639,6 +3725,58 @@ function mapSupplierPaymentStatus(status: string) {
   };
 
   return statusMap[status] ?? status;
+}
+
+function mapAuditAction(action: string) {
+  const actionMap: Record<string, string> = {
+    create: "新增",
+    update: "更新",
+    delete: "删除",
+    void: "作废",
+    enable: "启用",
+    disable: "停用",
+  };
+
+  return actionMap[action] ?? action;
+}
+
+function mapAuditEntityType(entityType: string) {
+  const entityMap: Record<string, string> = {
+    order: "订单",
+    customer: "客户档案",
+    customer_collaboration_task: "客户合作任务",
+    payment_receipt: "客户回款",
+    supplier_payment: "供应商付款",
+    profile: "账号与角色",
+    app_setting: "系统设置",
+  };
+
+  return entityMap[entityType] ?? entityType;
+}
+
+function formatAuditMetadata(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return "";
+  }
+
+  return Object.entries(metadata as Record<string, unknown>)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .slice(0, 5)
+    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
+    .join(" · ");
+}
+
+function resolveAuditHref(entityType: string, entityId: string | null, metadata: unknown) {
+  const detail = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {};
+  const customerId = typeof detail.customerId === "string" ? detail.customerId : null;
+  const orderId = typeof detail.orderId === "string" ? detail.orderId : entityType === "order" ? entityId : null;
+
+  if (entityType === "customer" && entityId) return `/customers/${entityId}`;
+  if (entityType === "customer_collaboration_task" && customerId) return `/customers/${customerId}`;
+  if (entityType === "order" || orderId) return `/orders${orderId ? `?focus=${encodeURIComponent(orderId)}` : ""}`;
+  if (entityType === "payment_receipt" || entityType === "supplier_payment") return "/finance";
+  if (entityType === "profile" || entityType === "app_setting") return "/settings";
+  return "/audit";
 }
 
 function resolveReceivableAgingLabel(serviceDate: string | null | undefined, outstandingJpy: number) {

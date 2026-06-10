@@ -85,14 +85,21 @@ alter table public.customers add column if not exists line_id text;
 create table if not exists public.customer_collaboration_tasks (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.customers(id) on delete cascade,
+  assignee_profile_id uuid references public.profiles(id) on delete set null,
   title text not null,
   description text,
   status text not null default 'todo' check (status in ('todo', 'in_progress', 'waiting', 'completed', 'cancelled')),
   priority text not null default 'normal' check (priority in ('low', 'normal', 'high', 'urgent')),
   due_on date,
+  completed_at timestamptz,
+  completed_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.customer_collaboration_tasks add column if not exists assignee_profile_id uuid references public.profiles(id) on delete set null;
+alter table public.customer_collaboration_tasks add column if not exists completed_at timestamptz;
+alter table public.customer_collaboration_tasks add column if not exists completed_by uuid references public.profiles(id) on delete set null;
 
 create table if not exists public.vehicles (
   id uuid primary key default gen_random_uuid(),
@@ -297,6 +304,7 @@ create index if not exists idx_orders_archived_at on public.orders(archived_at) 
 create index if not exists idx_orders_archive_service_date on public.orders(service_date) where archived_at is not null;
 create index if not exists idx_customer_collaboration_tasks_customer_id on public.customer_collaboration_tasks(customer_id);
 create index if not exists idx_customer_collaboration_tasks_due_on on public.customer_collaboration_tasks(due_on);
+create index if not exists idx_customer_collaboration_tasks_assignee on public.customer_collaboration_tasks(assignee_profile_id);
 create unique index if not exists idx_drivers_unique_default_vehicle_id on public.drivers(default_vehicle_id) where default_vehicle_id is not null;
 create index if not exists idx_driver_incidents_driver_id on public.driver_incidents(driver_id);
 create index if not exists idx_driver_incidents_occurred_on on public.driver_incidents(occurred_on);

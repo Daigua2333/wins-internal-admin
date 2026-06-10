@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseConfig, isSupabaseConfigured } from "@/lib/supabase/config";
 import type { Database } from "@/lib/types/database";
 
-const protectedRoutes = ["/dashboard", "/orders", "/fleet", "/drivers", "/guides", "/customers", "/pricing", "/profit", "/settings"];
+const protectedRoutes = ["/dashboard", "/calendar", "/orders", "/fleet", "/drivers", "/guides", "/customers", "/pricing", "/profit", "/finance", "/audit", "/settings"];
 type SupabaseCookie = { name: string; value: string; options: CookieOptions };
 
 export async function updateSession(request: NextRequest) {

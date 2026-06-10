@@ -13,6 +13,7 @@ import {
   ClipboardList,
   FileText,
   LayoutDashboard,
+  ListChecks,
   Settings,
   Users,
   UserSquare2,
@@ -38,6 +39,7 @@ const iconByHref = {
   "/pricing": FileText,
   "/profit": Calculator,
   "/finance": CircleDollarSign,
+  "/audit": ListChecks,
   "/settings": Settings,
 } as const;
 

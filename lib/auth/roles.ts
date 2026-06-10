@@ -12,8 +12,8 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 
 export const ROLE_PERMISSIONS: Record<AppRole, string[]> = {
   admin: ["*"],
-  operations: ["orders.read", "orders.write", "customers.read", "customers.write", "profit.read", "finance.read", "guides.read", "guides.write", "drivers.read", "drivers.write", "vehicles.read", "vehicles.write", "quotations.read", "quotations.write"],
+  operations: ["orders.read", "orders.write", "customers.read", "customers.write", "profit.read", "finance.read", "audit.read", "guides.read", "guides.write", "drivers.read", "drivers.write", "vehicles.read", "vehicles.write", "quotations.read", "quotations.write"],
   sales: ["customers.read", "customers.write", "quotations.read", "quotations.write", "orders.read"],
-  finance: ["orders.read", "profit.read", "profit.write", "finance.read", "finance.write", "customers.read", "quotations.read"],
+  finance: ["orders.read", "profit.read", "profit.write", "finance.read", "finance.write", "audit.read", "customers.read", "quotations.read"],
   dispatch: ["orders.read", "orders.write", "vehicles.read", "vehicles.write", "drivers.read", "drivers.write", "guides.read", "guides.write"],
 };

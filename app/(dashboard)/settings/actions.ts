@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { writeAuditLog } from "@/lib/audit/log";
 import { APP_ROLES } from "@/lib/auth/roles";
-import { hasPermission } from "@/lib/auth/session";
+import { getCurrentUser, hasPermission } from "@/lib/auth/session";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/types/database";
@@ -51,6 +52,16 @@ export async function updateProfileRole(formData: FormData) {
     redirect("/settings?error=role_update_failed");
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "profile",
+    entityId: profileId,
+    summary: `更新账号角色为 ${role}`,
+    metadata: { role },
+  });
+
   revalidatePath("/settings");
   redirect("/settings?message=role_updated");
 }
@@ -90,6 +101,14 @@ export async function updateProfileActive(formData: FormData) {
     console.error("[settings:update-profile-active]", error.message);
     redirect("/settings?error=profile_status_update_failed");
   }
+
+  await writeAuditLog(supabase, {
+    actorId: currentUserId,
+    action: nextActive ? "enable" : "disable",
+    entityType: "profile",
+    entityId: profileId,
+    summary: nextActive ? "启用后台账号" : "停用后台账号",
+  });
 
   revalidatePath("/settings");
   redirect(`/settings?message=${nextActive ? "account_enabled" : "account_disabled"}`);
@@ -229,4 +248,13 @@ async function upsertAppSetting(input: {
     console.error("[settings:upsert-app-setting]", error.message);
     redirect(`/settings?error=settings_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "app_setting",
+    summary: `更新系统设置：${input.label}`,
+    metadata: { key: input.key, category: input.category },
+  });
 }

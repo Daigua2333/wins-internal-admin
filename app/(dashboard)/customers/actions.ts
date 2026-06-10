@@ -34,6 +34,15 @@ export async function createCustomer(formData: FormData) {
     redirect(`/customers?error=create_failed&detail=${encodeURIComponent(message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "create",
+    entityType: "customer",
+    entityId: (data as { id: string }).id,
+    summary: `建立客户档案：${String(payload.company_name ?? "")}`,
+  });
+
   revalidatePath("/customers");
   revalidatePath("/orders");
   revalidatePath("/dashboard");
@@ -68,6 +77,15 @@ export async function updateCustomerBasics(formData: FormData) {
     console.error("[customers:update-basics]", error.message);
     redirect(`/customers/${customerId}?error=update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "customer",
+    entityId: customerId,
+    summary: `更新客户档案：${String(payload.company_name ?? "")}`,
+  });
 
   revalidatePath("/customers");
   revalidatePath("/orders");
@@ -107,6 +125,16 @@ export async function updateCustomerStatus(formData: FormData) {
     console.error("[customers:update-status]", error.message);
     redirect(`/customers/${customerId}?error=status_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "customer",
+    entityId: customerId,
+    summary: `更新客户合作状态为 ${status}`,
+    metadata: { status },
+  });
 
   revalidatePath("/customers");
   revalidatePath("/dashboard");
@@ -151,6 +179,15 @@ export async function appendCustomerFollowLog(formData: FormData) {
     redirect(`/customers/${customerId}?error=follow_record_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "customer",
+    entityId: customerId,
+    summary: "新增客户跟进记录",
+  });
+
   revalidatePath("/customers");
   revalidatePath("/dashboard");
   redirect(`/customers/${customerId}?message=customer_follow_recorded`);
@@ -169,9 +206,11 @@ export async function createCustomerCollaborationTask(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const currentUser = await getCurrentUser();
+  const taskPayload = applyTaskCompletionFields(payload, currentUser?.id);
   const { data, error } = await supabase
     .from("customer_collaboration_tasks")
-    .insert({ ...payload, customer_id: customerId } as never)
+    .insert({ ...taskPayload, customer_id: customerId } as never)
     .select("id")
     .single();
 
@@ -180,14 +219,18 @@ export async function createCustomerCollaborationTask(formData: FormData) {
     redirect(`/customers/${customerId}?error=task_create_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
-  const currentUser = await getCurrentUser();
   await writeAuditLog(supabase, {
     actorId: currentUser?.id,
     action: "create",
     entityType: "customer_collaboration_task",
     entityId: (data as { id: string }).id,
     summary: `新增客户合作事项：${String(payload.title ?? "")}`,
-    metadata: { customerId, priority: payload.priority ?? "normal", dueOn: payload.due_on ?? null },
+    metadata: {
+      customerId,
+      assigneeId: payload.assignee_profile_id ?? null,
+      priority: payload.priority ?? "normal",
+      dueOn: payload.due_on ?? null,
+    },
   });
 
   revalidateCustomer(customerId);
@@ -208,21 +251,37 @@ export async function updateCustomerCollaborationTask(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("customer_collaboration_tasks").update(payload as never).eq("id", taskId).eq("customer_id", customerId);
+  const currentUser = await getCurrentUser();
+  const { data: existingTask } = await supabase
+    .from("customer_collaboration_tasks")
+    .select("status,completed_at,completed_by")
+    .eq("id", taskId)
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  const taskPayload = applyTaskCompletionFields(
+    payload,
+    currentUser?.id,
+    existingTask as { status: string; completed_at: string | null; completed_by: string | null } | null,
+  );
+  const { error } = await supabase.from("customer_collaboration_tasks").update(taskPayload as never).eq("id", taskId).eq("customer_id", customerId);
 
   if (error) {
     console.error("[customers:update-collaboration-task]", error.message);
     redirect(`/customers/${customerId}?error=task_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
-  const currentUser = await getCurrentUser();
   await writeAuditLog(supabase, {
     actorId: currentUser?.id,
     action: "update",
     entityType: "customer_collaboration_task",
     entityId: taskId,
     summary: `更新客户合作事项：${String(payload.title ?? "")}`,
-    metadata: { customerId, status: payload.status ?? "todo", priority: payload.priority ?? "normal" },
+    metadata: {
+      customerId,
+      assigneeId: payload.assignee_profile_id ?? null,
+      status: payload.status ?? "todo",
+      priority: payload.priority ?? "normal",
+    },
   });
 
   revalidateCustomer(customerId);
@@ -321,6 +380,7 @@ function readCollaborationTaskPayload(formData: FormData):
   const status = String(formData.get("status") ?? "todo").trim();
   const priority = String(formData.get("priority") ?? "normal").trim();
   const dueOn = String(formData.get("dueOn") ?? "").trim();
+  const assigneeProfileId = String(formData.get("assigneeProfileId") ?? "").trim();
 
   if (!title) return { error: "missing_task_fields" };
   if (!["todo", "in_progress", "waiting", "completed", "cancelled"].includes(status)) return { error: "invalid_task_status" };
@@ -328,11 +388,32 @@ function readCollaborationTaskPayload(formData: FormData):
 
   return {
     customer_id: String(formData.get("customerId") ?? "").trim(),
+    assignee_profile_id: assigneeProfileId || null,
     title,
     description: description || null,
     status: status as Database["public"]["Tables"]["customer_collaboration_tasks"]["Insert"]["status"],
     priority: priority as Database["public"]["Tables"]["customer_collaboration_tasks"]["Insert"]["priority"],
     due_on: dueOn || null,
+  };
+}
+
+function applyTaskCompletionFields(
+  payload: Database["public"]["Tables"]["customer_collaboration_tasks"]["Insert"] | Database["public"]["Tables"]["customer_collaboration_tasks"]["Update"],
+  actorId: string | undefined,
+  existingTask?: { status: string; completed_at: string | null; completed_by: string | null } | null,
+) {
+  if (payload.status === "completed") {
+    return {
+      ...payload,
+      completed_at: existingTask?.status === "completed" && existingTask.completed_at ? existingTask.completed_at : new Date().toISOString(),
+      completed_by: existingTask?.status === "completed" && existingTask.completed_by ? existingTask.completed_by : actorId ?? null,
+    };
+  }
+
+  return {
+    ...payload,
+    completed_at: null,
+    completed_by: null,
   };
 }
 

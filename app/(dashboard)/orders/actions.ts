@@ -180,6 +180,16 @@ export async function updateOrderBasics(formData: FormData) {
     redirect(`${redirectTo}?error=update_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: `更新订单基础信息：${title}`,
+    metadata: { customerId, serviceDate, revenueJpy },
+  });
+
   revalidatePath("/orders");
   revalidatePath("/dashboard");
   revalidatePath("/profit");
@@ -218,6 +228,16 @@ export async function updateOrderStatus(formData: FormData) {
     redirect(`${redirectTo}?error=status_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: `更新订单状态为 ${status}`,
+    metadata: { status },
+  });
+
   revalidatePath("/orders");
   revalidatePath("/dashboard");
   revalidatePath("/profit");
@@ -250,6 +270,15 @@ export async function deleteOrder(formData: FormData) {
     console.error("[orders:delete]", error.message);
     redirect(`${redirectTo}?error=delete_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "delete",
+    entityType: "order",
+    entityId: orderId,
+    summary: "删除订单",
+  });
 
   revalidatePath("/calendar");
   revalidatePath("/orders");
@@ -329,6 +358,16 @@ export async function archiveOrder(formData: FormData) {
     redirect(`${redirectTo}?error=archive_failed&detail=${encodeURIComponent(error.message)}`);
   }
 
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: `归档订单 ${orderRow.order_no}`,
+    metadata: { archiveCode: payload.archive_code, archiveSummary: payload.archive_summary },
+  });
+
   revalidatePath("/orders");
   revalidatePath("/dashboard");
   redirect(`${redirectTo}?message=order_archived`);
@@ -367,6 +406,15 @@ export async function restoreArchivedOrder(formData: FormData) {
     console.error("[orders:restore-archive]", error.message);
     redirect(`${redirectTo}?error=archive_restore_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: "将订单移出归档",
+  });
 
   revalidatePath("/orders");
   revalidatePath("/dashboard");
@@ -419,6 +467,15 @@ export async function appendOrderOperationsLog(formData: FormData) {
     console.error("[orders:append-ops-log]", error.message);
     redirect(`${redirectTo}?error=ops_log_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: `新增订单运营留痕：${logType}`,
+    metadata: { logType },
+  });
 
   revalidatePath("/calendar");
   revalidatePath("/orders");
@@ -483,6 +540,16 @@ export async function updateOrderDispatch(formData: FormData) {
     console.error("[orders:update-dispatch]", error.message);
     redirect(`${redirectTo}?error=dispatch_update_failed&detail=${encodeURIComponent(error.message)}`);
   }
+
+  const currentUser = await getCurrentUser();
+  await writeAuditLog(supabase, {
+    actorId: currentUser?.id,
+    action: "update",
+    entityType: "order",
+    entityId: orderId,
+    summary: "更新订单调度资源",
+    metadata: { vehicleId: vehicleId || null, driverId: driverId || null, guideId: guideId || null },
+  });
 
   revalidatePath("/orders");
   revalidatePath("/dashboard");

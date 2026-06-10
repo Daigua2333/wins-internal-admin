@@ -44,11 +44,14 @@ export type Customer = TimestampFields & {
 export type CustomerCollaborationTask = TimestampFields & {
   id: string;
   customer_id: string;
+  assignee_profile_id: string | null;
   title: string;
   description: string | null;
   status: "todo" | "in_progress" | "waiting" | "completed" | "cancelled";
   priority: "low" | "normal" | "high" | "urgent";
   due_on: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
 };
 
 export type Vehicle = TimestampFields & {
